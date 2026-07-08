@@ -23,6 +23,7 @@ class SkincareEntry(Base):
     vitamin_c: Mapped[bool] = mapped_column(Boolean, default=False)
     moisturizer: Mapped[bool] = mapped_column(Boolean, default=False)
     sunscreen: Mapped[bool] = mapped_column(Boolean, default=False)
+    lipcare: Mapped[bool] = mapped_column(Boolean, default=False)
 
     cleanser: Mapped[bool] = mapped_column(Boolean, default=False)
     evening_moisturizer: Mapped[bool] = mapped_column(Boolean, default=False)

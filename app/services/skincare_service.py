@@ -40,6 +40,7 @@ class SkincareService:
         skincare.sunscreen = request.sunscreen
         skincare.cleanser = request.cleanser
         skincare.evening_moisturizer = request.evening_moisturizer
+        skincare.lipcare = request.lipcare
 
         db.commit()
         db.refresh(skincare)
