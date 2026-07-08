@@ -12,6 +12,7 @@ class SkincareResponse(BaseModel):
     vitamin_c: bool
     moisturizer: bool
     sunscreen: bool
+    lipcare: bool
 
     cleanser: bool
     evening_moisturizer: bool
@@ -30,3 +31,4 @@ class SkincareUpdateRequest(BaseModel):
     sunscreen: bool
     cleanser: bool
     evening_moisturizer: bool
+    lipcare: bool
