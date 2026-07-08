@@ -13,6 +13,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "https://wellness-tracker-tan.vercel.app",
+        "https://wellness-tracker-fb4jckhh3-ssk12.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
