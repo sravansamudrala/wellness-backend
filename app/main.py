@@ -1,18 +1,28 @@
 from fastapi import FastAPI
 from sqlalchemy import text
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
 import app.models
 from app.api.skincare import router as skincare_router
-
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://wellness-tracker-tan.vercel.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
 
 app.include_router(skincare_router)
-
 
 @app.get("/")
 def root():
@@ -21,6 +31,7 @@ def root():
 
 @app.get("/health/db")
 def database_health():
+
     db = SessionLocal()
 
     try:
