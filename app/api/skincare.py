@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from app.database.session import SessionLocal
 from app.schemas.skincare import SkincareResponse
 from app.services.skincare_service import SkincareService
-from app.schemas.skincare import ( SkincareResponse,SkincareUpdateRequest,)
+from app.schemas.skincare import ( SkincareResponse,SkincareUpdateRequest,SkincareStatsResponse,)
 from typing import List
 from app.schemas.skincare_history import SkincareHistoryItem
 
@@ -53,5 +53,18 @@ def get_history():
     try:
         return SkincareService.get_history(db)
 
+    finally:
+        db.close()
+
+@router.get(
+    "/stats",
+    response_model=SkincareStatsResponse
+)
+def get_stats():
+
+    db: Session = SessionLocal()
+
+    try:
+        return SkincareService.get_stats(db)
     finally:
         db.close()

@@ -77,10 +77,96 @@ class SkincareService:
             history.append(
                 {
                     "date": entry.date,
+
                     "completed": completed,
                     "total": total,
                     "progress": progress,
+
+                    "face_wash": entry.face_wash,
+                    "vitamin_c": entry.vitamin_c,
+                    "moisturizer": entry.moisturizer,
+                    "sunscreen": entry.sunscreen,
+                    "lipcare": entry.lipcare,
+
+                    "cleanser": entry.cleanser,
+                    "evening_moisturizer": entry.evening_moisturizer,
                 }
             )
 
         return history
+
+    @staticmethod
+    def get_stats(db: Session):
+
+        entries = (
+            db.query(SkincareEntry)
+            .order_by(SkincareEntry.date.asc())
+            .all()
+        )
+
+        total_days = len(entries)
+
+        if total_days == 0:
+            return {
+                "current_streak": 0,
+                "best_streak": 0,
+                "total_days": 0,
+                "average_completion": 0,
+            }
+
+        best_streak = 0
+        current_streak = 0
+        streak = 0
+        total_progress = 0
+
+        for entry in entries:
+
+            completed = sum([
+                entry.face_wash,
+                entry.vitamin_c,
+                entry.moisturizer,
+                entry.sunscreen,
+                entry.lipcare,
+                entry.cleanser,
+                entry.evening_moisturizer,
+            ])
+
+            progress = round((completed / 7) * 100)
+
+            total_progress += progress
+
+            if progress == 100:
+                streak += 1
+                best_streak = max(best_streak, streak)
+            else:
+                streak = 0
+
+        streak = 0
+
+        for entry in reversed(entries):
+
+            completed = sum([
+                entry.face_wash,
+                entry.vitamin_c,
+                entry.moisturizer,
+                entry.sunscreen,
+                entry.lipcare,
+                entry.cleanser,
+                entry.evening_moisturizer,
+            ])
+
+            progress = round((completed / 7) * 100)
+
+            if progress == 100:
+                streak += 1
+            else:
+                break
+
+        current_streak = streak
+
+        return {
+            "current_streak": current_streak,
+            "best_streak": best_streak,
+            "total_days": total_days,
+            "average_completion": round(total_progress / total_days),
+        }
