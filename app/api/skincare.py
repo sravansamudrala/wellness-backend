@@ -5,6 +5,8 @@ from app.database.session import SessionLocal
 from app.schemas.skincare import SkincareResponse
 from app.services.skincare_service import SkincareService
 from app.schemas.skincare import ( SkincareResponse,SkincareUpdateRequest,)
+from typing import List
+from app.schemas.skincare_history import SkincareHistoryItem
 
 router = APIRouter(
     prefix="/api/v1/skincare",
@@ -36,6 +38,20 @@ def update_today(
             db,
             request
         )
+
+    finally:
+        db.close()
+
+@router.get(
+    "/history",
+    response_model=List[SkincareHistoryItem]
+)
+def get_history():
+
+    db: Session = SessionLocal()
+
+    try:
+        return SkincareService.get_history(db)
 
     finally:
         db.close()
