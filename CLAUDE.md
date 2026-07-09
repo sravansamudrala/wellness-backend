@@ -46,8 +46,14 @@ Key conventions to follow when adding features:
 
 Tables are created at import time via `Base.metadata.create_all(bind=engine)` in [app/main.py](app/main.py:25) — **there are no migrations run**. `alembic` is listed in requirements.txt but is not initialized (no `alembic.ini`, no `migrations/`). Changing a model's columns will **not** alter an existing table; you must drop/recreate or wire up Alembic. New models only need to be imported before `create_all` runs.
 
+## Skincare endpoints
+
+`SkincareService` (all `@staticmethod`, in [app/services/skincare_service.py](app/services/skincare_service.py)) backs four routes under `/api/v1/skincare` ([app/api/skincare.py](app/api/skincare.py)):
+
+- `GET/PUT /today` — get-or-create today's entry / update its 7 booleans (`SkincareResponse`, `SkincareUpdateRequest`).
+- `GET /history` — every entry, newest first, each as a `SkincareHistoryItem` ([app/schemas/skincare_history.py](app/schemas/skincare_history.py)): `date`, `completed`/`total`/`progress` (completion over the 7 booleans), **plus all 7 booleans themselves**.
+- `GET /stats` — `SkincareStatsResponse` (in [app/schemas/skincare.py](app/schemas/skincare.py)): `current_streak`, `best_streak`, `total_days`, `average_completion`. A "100%" day (all 7 booleans true) counts toward a streak.
+
 ## Current state / gotchas
 
-- [app/schemas/skincare_history.py](app/schemas/skincare_history.py) is a work-in-progress stray: it contains a bare `get_history` function (computes a per-day completion percentage over the 7 skincare booleans) with no class, imports, schema, route, or wiring. It is not reachable yet.
-- The reminder-settings feature (`api/`, `models/`, `schemas/`, `services/reminder_service.py`) is untracked in git — newly added, not yet committed.
-- `SkincareEntry.date` is `unique=True` (one entry per day). The skincare habit set is 7 booleans: face_wash, vitamin_c, moisturizer, sunscreen, lipcare, cleanser, evening_moisturizer — keep model, `SkincareUpdateRequest`, `SkincareResponse`, and the `get_history` completion count in sync when adding a habit.
+- `SkincareEntry.date` is `unique=True` (one entry per day). The skincare habit set is 7 booleans: face_wash, vitamin_c, moisturizer, sunscreen, lipcare, cleanser, evening_moisturizer. When adding/removing a habit, keep **all** of these in sync: the model, `SkincareUpdateRequest`, `SkincareResponse`, `SkincareHistoryItem`, the `completed`/`total` counts in both `get_history` and `get_stats`, and the streak `== 100` check in `get_stats` (hardcoded `/ 7`).
