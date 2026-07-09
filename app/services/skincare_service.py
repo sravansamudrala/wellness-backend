@@ -6,6 +6,33 @@ from app.models.skincare import SkincareEntry
 from app.schemas.skincare import SkincareUpdateRequest
 
 
+def _streak_message(current_streak: int, best_streak: int, total_days: int) -> str:
+    """Pick an encouraging message for the user's current streak.
+
+    Special cases are checked before the generic per-streak tiers.
+    """
+    if total_days == 0:
+        return "Add your first habit to start a streak! 🌱"
+
+    if current_streak == 0:
+        if best_streak == 0:
+            return "Every routine counts — check one off to begin! 💧"
+        return f"Your best run was {best_streak} days. Start a new one today! 🔄"
+
+    if current_streak == best_streak and current_streak >= 3:
+        return f"🔥 {current_streak}-day streak — a new personal best!"
+
+    if current_streak <= 2:
+        return "Nice start — keep it going tomorrow! 👍"
+    if current_streak <= 6:
+        return f"{current_streak} days strong — momentum's building! 💪"
+    if current_streak <= 13:
+        return f"A full week+! {current_streak} days of consistency. 🌟"
+    if current_streak <= 29:
+        return f"{current_streak} days — this is becoming a habit! 🏆"
+    return f"{current_streak} days! Incredible dedication. 👑"
+
+
 class SkincareService:
 
     @staticmethod
@@ -112,6 +139,7 @@ class SkincareService:
                 "best_streak": 0,
                 "total_days": 0,
                 "average_completion": 0,
+                "message": _streak_message(0, 0, 0),
             }
 
         total_progress = 0
@@ -170,4 +198,5 @@ class SkincareService:
             "best_streak": best_streak,
             "total_days": total_days,
             "average_completion": round(total_progress / total_days),
+            "message": _streak_message(current_streak, best_streak, total_days),
         }
