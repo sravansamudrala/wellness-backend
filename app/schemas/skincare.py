@@ -29,6 +29,7 @@ class SkincareStatsResponse(BaseModel):
     best_streak: int
     total_days: int
     average_completion: int
+    message: str
 
 class SkincareUpdateRequest(BaseModel):
     face_wash: bool
