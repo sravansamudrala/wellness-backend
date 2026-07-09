@@ -10,6 +10,15 @@ class SkincareHistoryItem(BaseModel):
     total: int
     progress: int
 
+    face_wash: bool
+    vitamin_c: bool
+    moisturizer: bool
+    sunscreen: bool
+    lipcare: bool
+
+    cleanser: bool
+    evening_moisturizer: bool
+
     model_config = {
         "from_attributes": True
     }
