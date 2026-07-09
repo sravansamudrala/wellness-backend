@@ -46,3 +46,41 @@ class SkincareService:
         db.refresh(skincare)
 
         return skincare
+    
+    @staticmethod
+    def get_history(db: Session):
+
+        entries = (
+            db.query(SkincareEntry)
+            .order_by(SkincareEntry.date.desc())
+            .all()
+        )
+
+        history = []
+
+        for entry in entries:
+
+            completed = sum([
+                entry.face_wash,
+                entry.vitamin_c,
+                entry.moisturizer,
+                entry.sunscreen,
+                entry.lipcare,
+                entry.cleanser,
+                entry.evening_moisturizer,
+            ])
+
+            total = 7
+
+            progress = round((completed / total) * 100)
+
+            history.append(
+                {
+                    "date": entry.date,
+                    "completed": completed,
+                    "total": total,
+                    "progress": progress,
+                }
+            )
+
+        return history
