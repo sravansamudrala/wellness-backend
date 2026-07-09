@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -114,10 +114,8 @@ class SkincareService:
                 "average_completion": 0,
             }
 
-        best_streak = 0
-        current_streak = 0
-        streak = 0
         total_progress = 0
+        perfect_dates = set()
 
         for entry in entries:
 
@@ -131,38 +129,41 @@ class SkincareService:
                 entry.evening_moisturizer,
             ])
 
-            progress = round((completed / 7) * 100)
+            total_progress += round((completed / 7) * 100)
 
-            total_progress += progress
+            if completed == 7:
+                perfect_dates.add(entry.date)
 
-            if progress == 100:
-                streak += 1
-                best_streak = max(best_streak, streak)
+        # Best streak: longest run of consecutive *calendar days* that were
+        # 100% complete. A gap (a skipped or non-100% day) resets the run.
+        best_streak = 0
+        run = 0
+        prev_date = None
+
+        for entry in entries:
+            if entry.date in perfect_dates:
+                if prev_date is not None and entry.date == prev_date + timedelta(days=1):
+                    run += 1
+                else:
+                    run = 1
+                best_streak = max(best_streak, run)
+                prev_date = entry.date
             else:
-                streak = 0
+                run = 0
+                prev_date = None
 
-        streak = 0
+        # Current streak: consecutive 100% days ending today, walking back one
+        # calendar day at a time. Today not being logged/complete yet doesn't
+        # break a streak, so start from yesterday in that case.
+        current_streak = 0
+        cursor = date.today()
 
-        for entry in reversed(entries):
+        if cursor not in perfect_dates:
+            cursor = cursor - timedelta(days=1)
 
-            completed = sum([
-                entry.face_wash,
-                entry.vitamin_c,
-                entry.moisturizer,
-                entry.sunscreen,
-                entry.lipcare,
-                entry.cleanser,
-                entry.evening_moisturizer,
-            ])
-
-            progress = round((completed / 7) * 100)
-
-            if progress == 100:
-                streak += 1
-            else:
-                break
-
-        current_streak = streak
+        while cursor in perfect_dates:
+            current_streak += 1
+            cursor = cursor - timedelta(days=1)
 
         return {
             "current_streak": current_streak,
