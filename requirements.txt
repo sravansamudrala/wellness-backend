@@ -27,3 +27,22 @@ uvicorn==0.50.2
 uvloop==0.22.1
 watchfiles==1.2.0
 websockets==16.0
+
+# Web Push (reminders)
+pywebpush==2.3.0
+py-vapid==1.9.4
+http_ece==1.2.1
+cryptography==49.0.0
+cffi==2.1.0
+pycparser==3.0
+requests==2.34.2
+urllib3==2.7.0
+charset-normalizer==3.4.9
+aiohttp==3.14.1
+aiohappyeyeballs==2.7.1
+aiosignal==1.4.0
+attrs==26.1.0
+frozenlist==1.8.0
+multidict==6.7.1
+propcache==0.5.2
+yarl==1.24.2
