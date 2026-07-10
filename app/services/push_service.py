@@ -45,13 +45,14 @@ class PushService:
         return subscription
 
     @staticmethod
-    def send_to_all(db: Session, title: str, body: str) -> int:
+    def send_to_all(db: Session, title: str, body: str):
         subscriptions = db.query(PushSubscription).all()
 
         payload = json.dumps({"title": title, "body": body})
         vapid_claims = {"sub": settings.vapid_subject}
 
         sent = 0
+        errors = []
 
         for subscription in subscriptions:
             try:
@@ -71,19 +72,21 @@ class PushService:
             except WebPushException as exc:
                 # 404/410 mean the subscription is dead — drop it.
                 status = getattr(exc.response, "status_code", None)
+                detail = exc.response.text[:200] if exc.response is not None else str(exc)
+                errors.append({"type": "WebPushException", "status": status, "detail": detail})
                 if status in (404, 410):
                     db.delete(subscription)
-            except Exception:
+            except Exception as exc:
                 # Bad VAPID key, encryption error, etc. — isolate the failure
                 # so one bad subscription can't 500 the whole dispatch.
-                pass
+                errors.append({"type": type(exc).__name__, "detail": str(exc)[:200]})
 
         db.commit()
-        return sent
+        return sent, errors
 
     @staticmethod
     def dispatch_due(db: Session) -> dict:
-        result = {"enabled": False, "sent": []}
+        result = {"enabled": False, "sent": [], "errors": []}
 
         reminder = ReminderService.get_settings(db)
         if not reminder.notifications_enabled:
@@ -125,7 +128,8 @@ class PushService:
             # was accepted — so a transient failure (bad key, provider hiccup)
             # doesn't permanently consume today's slot; it retries next tick.
             title, body = SLOT_MESSAGES[slot]
-            count = PushService.send_to_all(db, title, body)
+            count, errs = PushService.send_to_all(db, title, body)
+            result["errors"].extend(errs)
 
             if count > 0:
                 db.add(ReminderDispatchLog(sent_on=today, slot=slot))
