@@ -12,7 +12,7 @@ FastAPI backend for a personal wellness tracker (skincare routine + reminder set
 # Activate the virtualenv (committed venv/ is the intended env)
 source venv/bin/activate
 
-# Run the dev server (SQL echo is on by default in the engine)
+# Run the dev server (set SQL_ECHO=true in .env for SQL logging; off by default)
 uvicorn app.main:app --reload
 
 # Install / update deps
@@ -22,7 +22,7 @@ pip install -r requirements.txt
 open http://localhost:8000/docs
 ```
 
-`DATABASE_URL` must be set in `.env` (loaded by [app/core/config.py](app/core/config.py) via pydantic-settings) — it points at a PostgreSQL instance (psycopg 3 driver). There is no test suite, linter config, or Makefile in the repo yet.
+`DATABASE_URL` must be set in `.env` (loaded by [app/core/config.py](app/core/config.py) via pydantic-settings) — it points at a Supabase PostgreSQL instance via the connection pooler (psycopg 3 driver). The engine sets `pool_pre_ping=True` so connections dropped during Render idle / by the pooler reconnect transparently. Other `.env` settings: `SQL_ECHO` (bool, default off), and the Web Push vars below (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `DISPATCH_TOKEN`, `REMINDER_TIMEZONE`). There is no test suite, linter config, or Makefile in the repo yet.
 
 ## Architecture
 
@@ -52,7 +52,17 @@ Tables are created at import time via `Base.metadata.create_all(bind=engine)` in
 
 - `GET/PUT /today` — get-or-create today's entry / update its 7 booleans (`SkincareResponse`, `SkincareUpdateRequest`).
 - `GET /history` — every entry, newest first, each as a `SkincareHistoryItem` ([app/schemas/skincare_history.py](app/schemas/skincare_history.py)): `date`, `completed`/`total`/`progress` (completion over the 7 booleans), **plus all 7 booleans themselves**.
-- `GET /stats` — `SkincareStatsResponse` (in [app/schemas/skincare.py](app/schemas/skincare.py)): `current_streak`, `best_streak`, `total_days`, `average_completion`. A "100%" day (all 7 booleans true) counts toward a streak.
+- `GET /stats` — `SkincareStatsResponse` (in [app/schemas/skincare.py](app/schemas/skincare.py)): `current_streak`, `best_streak`, `total_days`, `average_completion`, and a `message` string. A "100%" day (all 7 booleans true) counts toward a streak; streaks are computed over **consecutive calendar days** and `current_streak` is anchored to today (`get_stats`). `message` is a **rule-based tiered template** (`_streak_message` in the service) — no LLM.
+
+## Push notifications (reminders)
+
+Web Push reminders fire at the user's `morning_time`/`evening_time` even when the installed PWA is closed. Flow: the PWA subscribes and POSTs its subscription to the backend; an **external cron** (cron-job.org) hits the dispatch endpoint every ~10 min; the endpoint checks the schedule and pushes via `pywebpush`.
+
+- **Endpoints** ([app/api/push.py](app/api/push.py), prefix `/api/v1/push`): `POST /subscribe` (store the browser subscription); `POST /dispatch?token=<DISPATCH_TOKEN>` (token-guarded; the cron caller). `dispatch` returns `{enabled, sent, errors}` — `errors` carries per-send failure detail for debugging.
+- **`PushService.dispatch_due`** ([app/services/push_service.py](app/services/push_service.py)): if notifications enabled, for each slot due *now* (at/after the reminder time, within a 60-min grace window) and **not already sent today**, push to **all** stored subscriptions and record a dedup row. **One notification per slot per day** — a `ReminderDispatchLog` row keyed `(sent_on, slot)` is the guard; it's written only *after* a successful send, and dead subscriptions (404/410) are auto-deleted.
+- **New tables** (`push_subscriptions`, `reminder_dispatch_log`) are created by `create_all` — no migration needed.
+- **Setup (env, one-time):** `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (VAPID keypair), `VAPID_SUBJECT`, `DISPATCH_TOKEN` (cron secret), `REMINDER_TIMEZONE` (IANA, e.g. `Asia/Kolkata` — Render runs UTC, so this must be set or reminders fire at the wrong hour). The frontend needs `VITE_VAPID_PUBLIC_KEY` = the same public key. Cron: `POST .../api/v1/push/dispatch?token=...` every 10 min.
+- **Gotchas learned the hard way:** `VAPID_SUBJECT` must be an **https URL or a real `mailto:` email** — Apple rejects fake domains like `mailto:x@…​.local` with `403 BadJwtToken`. `VAPID_PRIVATE_KEY` must be the **exact** base64url value (a wrong/mangled value fails with `ValueError: Could not deserialize key data` only once a subscription exists to sign for). iOS: push works **only** in the home-screen-installed PWA (16.4+), and permission must be requested from a user gesture.
 
 ## Current state / gotchas
 
