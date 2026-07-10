@@ -73,6 +73,10 @@ class PushService:
                 status = getattr(exc.response, "status_code", None)
                 if status in (404, 410):
                     db.delete(subscription)
+            except Exception:
+                # Bad VAPID key, encryption error, etc. — isolate the failure
+                # so one bad subscription can't 500 the whole dispatch.
+                pass
 
         db.commit()
         return sent
@@ -117,13 +121,16 @@ class PushService:
             if already is not None:
                 continue
 
-            # Record first (unique constraint is the real guard against a race
-            # between two concurrent cron ticks), then send.
-            db.add(ReminderDispatchLog(sent_on=today, slot=slot))
-            db.commit()
-
+            # Send first, then record the dedup log only if at least one push
+            # was accepted — so a transient failure (bad key, provider hiccup)
+            # doesn't permanently consume today's slot; it retries next tick.
             title, body = SLOT_MESSAGES[slot]
             count = PushService.send_to_all(db, title, body)
+
+            if count > 0:
+                db.add(ReminderDispatchLog(sent_on=today, slot=slot))
+                db.commit()
+
             result["sent"].append({"slot": slot, "subscriptions": count})
 
         return result
