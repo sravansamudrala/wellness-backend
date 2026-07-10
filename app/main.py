@@ -7,6 +7,7 @@ from app.database.session import engine, SessionLocal
 import app.models
 from app.api.skincare import router as skincare_router
 from app.api.reminder_settings import router as reminder_settings_router
+from app.api.push import router as push_router
 
 app = FastAPI()
 app.add_middleware(
@@ -26,6 +27,7 @@ Base.metadata.create_all(bind=engine)
 
 app.include_router(skincare_router)
 app.include_router(reminder_settings_router)
+app.include_router(push_router)
 
 @app.get("/")
 def root():
