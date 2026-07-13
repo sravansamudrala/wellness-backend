@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -26,20 +27,23 @@ def _stats_message(current_streak: int, total_workouts: int, days_since_last) ->
 
 
 class InsightsService:
-    """All insights are derived from workout sessions — no dedicated tables."""
+    """All insights are derived from a single user's completed workout sessions."""
 
     @staticmethod
-    def _completed_sessions(db: Session):
+    def _completed_sessions(db: Session, user_id: UUID):
         return (
             db.query(WorkoutSession)
-            .filter(WorkoutSession.status == "completed")
+            .filter(
+                WorkoutSession.user_id == user_id,
+                WorkoutSession.status == "completed",
+            )
             .order_by(WorkoutSession.started_at.asc())
             .all()
         )
 
     @staticmethod
-    def get_stats(db: Session) -> dict:
-        sessions = InsightsService._completed_sessions(db)
+    def get_stats(db: Session, user_id: UUID) -> dict:
+        sessions = InsightsService._completed_sessions(db, user_id)
         total_workouts = len(sessions)
 
         if total_workouts == 0:
@@ -114,8 +118,8 @@ class InsightsService:
         return volume
 
     @staticmethod
-    def get_volume(db: Session, range: str = "all") -> dict:
-        sessions = InsightsService._completed_sessions(db)
+    def get_volume(db: Session, user_id: UUID, range: str = "all") -> dict:
+        sessions = InsightsService._completed_sessions(db, user_id)
 
         today = date.today()
         if range == "week":
@@ -143,8 +147,8 @@ class InsightsService:
         }
 
     @staticmethod
-    def get_records(db: Session):
-        sessions = InsightsService._completed_sessions(db)
+    def get_records(db: Session, user_id: UUID):
+        sessions = InsightsService._completed_sessions(db, user_id)
         session_ids = [s.id for s in sessions]
         if not session_ids:
             return []
@@ -204,11 +208,11 @@ class InsightsService:
         return result
 
     @staticmethod
-    def get_recovery(db: Session):
+    def get_recovery(db: Session, user_id: UUID):
         """Days since each muscle group was last trained (via exercise.primary_muscle_group).
 
-        Basic per-primary-muscle version; richer recovery arrives with the deferred
-        exercise↔muscle M2M.
+        Muscle groups are shared master data; recency is derived from this
+        user's completed sessions only.
         """
         muscle_groups = db.query(MuscleGroup).order_by(MuscleGroup.name.asc()).all()
         if not muscle_groups:
@@ -224,7 +228,7 @@ class InsightsService:
         )
         ex_to_muscle = {e.id: e.primary_muscle_group_id for e in exercises}
 
-        sessions = InsightsService._completed_sessions(db)
+        sessions = InsightsService._completed_sessions(db, user_id)
 
         # muscle_group_id -> latest trained date.
         last_trained = {}

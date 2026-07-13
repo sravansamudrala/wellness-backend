@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -36,19 +37,22 @@ def _streak_message(current_streak: int, best_streak: int, total_days: int) -> s
 class SkincareService:
 
     @staticmethod
-    def get_today(db: Session) -> SkincareEntry:
+    def get_today(db: Session, user_id: UUID) -> SkincareEntry:
         today = date.today()
 
         skincare = (
             db.query(SkincareEntry)
-            .filter(SkincareEntry.date == today)
+            .filter(
+                SkincareEntry.user_id == user_id,
+                SkincareEntry.date == today,
+            )
             .first()
         )
 
         if skincare:
             return skincare
 
-        skincare = SkincareEntry(date=today)
+        skincare = SkincareEntry(user_id=user_id, date=today)
 
         db.add(skincare)
         db.commit()
@@ -57,9 +61,11 @@ class SkincareService:
         return skincare
 
     @staticmethod
-    def update_today(db: Session, request: SkincareUpdateRequest) -> SkincareEntry:
+    def update_today(
+        db: Session, user_id: UUID, request: SkincareUpdateRequest
+    ) -> SkincareEntry:
 
-        skincare = SkincareService.get_today(db)
+        skincare = SkincareService.get_today(db, user_id)
 
         skincare.face_wash = request.face_wash
         skincare.vitamin_c = request.vitamin_c
@@ -73,12 +79,13 @@ class SkincareService:
         db.refresh(skincare)
 
         return skincare
-    
+
     @staticmethod
-    def get_history(db: Session):
+    def get_history(db: Session, user_id: UUID):
 
         entries = (
             db.query(SkincareEntry)
+            .filter(SkincareEntry.user_id == user_id)
             .order_by(SkincareEntry.date.desc())
             .all()
         )
@@ -123,10 +130,11 @@ class SkincareService:
         return history
 
     @staticmethod
-    def get_stats(db: Session):
+    def get_stats(db: Session, user_id: UUID):
 
         entries = (
             db.query(SkincareEntry)
+            .filter(SkincareEntry.user_id == user_id)
             .order_by(SkincareEntry.date.asc())
             .all()
         )
