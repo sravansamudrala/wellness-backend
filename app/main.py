@@ -15,9 +15,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://wellness-tracker-tan.vercel.app",
-        "https://wellness-tracker-fb4jckhh3-ssk12.vercel.app"
+        "http://localhost:4173",
     ],
+    # Match every Vercel deployment URL for this project (production alias +
+    # per-deploy/preview hashes like wellness-tracker-<hash>-ssk12.vercel.app),
+    # so a new Vercel URL never breaks CORS again. The API has no auth, so this
+    # is not a security boundary.
+    allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
