@@ -1,9 +1,10 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.database.session import SessionLocal
 from app.schemas.gym.exercise import (
     EquipmentResponse,
@@ -14,12 +15,17 @@ from app.services.gym.catalog_service import CatalogService
 
 router = APIRouter(tags=["Gym — Catalog"])
 
+# NOTE: the catalog is SHARED master data — same for every user, so we do NOT
+# filter by user_id. The `_user_id` param only requires a valid login (auth
+# gate); its value is intentionally unused.
+
 
 @router.get("/exercises", response_model=List[ExerciseResponse])
 def list_exercises(
     muscle: Optional[UUID] = Query(default=None),
     equipment: Optional[UUID] = Query(default=None),
     q: Optional[str] = Query(default=None),
+    _user_id: UUID = Depends(get_current_user),
 ):
     db: Session = SessionLocal()
 
@@ -30,7 +36,10 @@ def list_exercises(
 
 
 @router.get("/exercises/{exercise_id}", response_model=ExerciseResponse)
-def get_exercise(exercise_id: UUID):
+def get_exercise(
+    exercise_id: UUID,
+    _user_id: UUID = Depends(get_current_user),
+):
     db: Session = SessionLocal()
 
     try:
@@ -43,7 +52,7 @@ def get_exercise(exercise_id: UUID):
 
 
 @router.get("/muscle-groups", response_model=List[MuscleGroupResponse])
-def list_muscle_groups():
+def list_muscle_groups(_user_id: UUID = Depends(get_current_user)):
     db: Session = SessionLocal()
 
     try:
@@ -53,7 +62,7 @@ def list_muscle_groups():
 
 
 @router.get("/equipment", response_model=List[EquipmentResponse])
-def list_equipment():
+def list_equipment(_user_id: UUID = Depends(get_current_user)):
     db: Session = SessionLocal()
 
     try:

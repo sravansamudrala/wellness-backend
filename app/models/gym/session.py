@@ -23,6 +23,15 @@ class WorkoutSession(Base):
         default=uuid.uuid4,
     )
 
+    # Owner of this workout. Children (session_exercises/sets) inherit ownership
+    # through their FKs, so they don't need their own user_id.
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
     plan_day_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("plan_days.id"),

@@ -1,6 +1,9 @@
-from sqlalchemy.orm import Session
-from fastapi import APIRouter, HTTPException, Query
+from uuid import UUID
 
+from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.api.deps import get_current_user
 from app.core.config import settings
 from app.database.session import SessionLocal
 from app.schemas.push import PushSubscriptionRequest
@@ -13,12 +16,16 @@ router = APIRouter(
 
 
 @router.post("/subscribe")
-def subscribe(request: PushSubscriptionRequest):
+def subscribe(
+    request: PushSubscriptionRequest,
+    user_id: UUID = Depends(get_current_user),
+):
 
     db: Session = SessionLocal()
 
     try:
-        PushService.save_subscription(db, request)
+        # Attach this device to the logged-in user so the cron notifies them.
+        PushService.save_subscription(db, user_id, request)
         return {"status": "ok"}
     finally:
         db.close()

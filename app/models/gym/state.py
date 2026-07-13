@@ -26,6 +26,14 @@ class GymState(Base):
         default=uuid.uuid4,
     )
 
+    # One cursor row per user (unique). Nullable for the migration/legacy claim.
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=True,
+    )
+
     active_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("workout_plans.id"),
