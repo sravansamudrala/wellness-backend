@@ -1,6 +1,9 @@
-from sqlalchemy.orm import Session
-from fastapi import APIRouter
+from uuid import UUID
 
+from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
+
+from app.api.deps import get_current_user
 from app.database.session import SessionLocal
 from app.schemas.reminder_settings import (
     ReminderSettingsResponse,
@@ -15,12 +18,12 @@ router = APIRouter(
 
 
 @router.get("", response_model=ReminderSettingsResponse)
-def get_reminder_settings():
+def get_reminder_settings(user_id: UUID = Depends(get_current_user)):
 
     db: Session = SessionLocal()
 
     try:
-        return ReminderService.get_settings(db)
+        return ReminderService.get_settings(db, user_id)
     finally:
         db.close()
 
@@ -28,11 +31,12 @@ def get_reminder_settings():
 @router.put("", response_model=ReminderSettingsResponse)
 def update_reminder_settings(
     request: ReminderSettingsUpdateRequest,
+    user_id: UUID = Depends(get_current_user),
 ):
 
     db: Session = SessionLocal()
 
     try:
-        return ReminderService.update_settings(db, request)
+        return ReminderService.update_settings(db, user_id, request)
     finally:
         db.close()

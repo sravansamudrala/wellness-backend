@@ -12,23 +12,29 @@ from app.services.gym.builders import build_day_detail, build_session_detail
 
 
 class WorkoutService:
-    """The queue engine + workout-session lifecycle."""
+    """The queue engine + workout-session lifecycle, scoped to one user."""
 
-    # ----- State (singleton cursor) -----
+    # ----- State (per-user singleton cursor) -----
 
     @staticmethod
-    def get_state(db: Session) -> GymState:
-        state = db.query(GymState).first()
+    def get_state(db: Session, user_id: UUID) -> GymState:
+        state = (
+            db.query(GymState)
+            .filter(GymState.user_id == user_id)
+            .first()
+        )
         if state is None:
-            state = GymState()
+            state = GymState(user_id=user_id)
             db.add(state)
             db.commit()
             db.refresh(state)
         return state
 
     @staticmethod
-    def update_state(db: Session, request: GymStateUpdateRequest) -> GymState:
-        state = WorkoutService.get_state(db)
+    def update_state(
+        db: Session, user_id: UUID, request: GymStateUpdateRequest
+    ) -> GymState:
+        state = WorkoutService.get_state(db, user_id)
         state.unit = request.unit
         db.commit()
         db.refresh(state)
@@ -46,9 +52,9 @@ class WorkoutService:
         )
 
     @staticmethod
-    def get_next_day(db: Session):
+    def get_next_day(db: Session, user_id: UUID):
         """Resolve the next plan day in the rotation, or None if no active plan."""
-        state = WorkoutService.get_state(db)
+        state = WorkoutService.get_state(db, user_id)
         if state.active_plan_id is None:
             return None
 
@@ -68,8 +74,8 @@ class WorkoutService:
         return days[0]
 
     @staticmethod
-    def get_active(db: Session) -> dict:
-        state = WorkoutService.get_state(db)
+    def get_active(db: Session, user_id: UUID) -> dict:
+        state = WorkoutService.get_state(db, user_id)
 
         active_plan = None
         if state.active_plan_id is not None:
@@ -79,7 +85,7 @@ class WorkoutService:
                 .first()
             )
 
-        next_day = WorkoutService.get_next_day(db)
+        next_day = WorkoutService.get_next_day(db, user_id)
         next_day_detail = build_day_detail(db, next_day) if next_day else None
 
         return {
@@ -91,25 +97,30 @@ class WorkoutService:
     # ----- Sessions -----
 
     @staticmethod
-    def get_current_session(db: Session):
+    def get_current_session(db: Session, user_id: UUID):
         return (
             db.query(WorkoutSession)
-            .filter(WorkoutSession.status == "in_progress")
+            .filter(
+                WorkoutSession.user_id == user_id,
+                WorkoutSession.status == "in_progress",
+            )
             .order_by(WorkoutSession.started_at.desc())
             .first()
         )
 
     @staticmethod
-    def get_current_session_detail(db: Session):
-        session = WorkoutService.get_current_session(db)
+    def get_current_session_detail(db: Session, user_id: UUID):
+        session = WorkoutService.get_current_session(db, user_id)
         if session is None:
             return None
         return build_session_detail(db, session)
 
     @staticmethod
-    def start_session(db: Session, request: StartSessionRequest) -> dict:
-        # One in-progress session at a time — resume the existing one if present.
-        existing = WorkoutService.get_current_session(db)
+    def start_session(
+        db: Session, user_id: UUID, request: StartSessionRequest
+    ) -> dict:
+        # One in-progress session at a time per user — resume the existing one.
+        existing = WorkoutService.get_current_session(db, user_id)
         if existing is not None:
             return build_session_detail(db, existing)
 
@@ -122,10 +133,11 @@ class WorkoutService:
             )
         elif request.name is None:
             # No specific day and no freestyle name → start the next queued day.
-            plan_day = WorkoutService.get_next_day(db)
+            plan_day = WorkoutService.get_next_day(db, user_id)
 
         if plan_day is not None:
             session = WorkoutSession(
+                user_id=user_id,
                 plan_day_id=plan_day.id,
                 plan_id=plan_day.plan_id,
                 name=plan_day.name,
@@ -152,6 +164,7 @@ class WorkoutService:
         else:
             # Freestyle session (no plan day).
             session = WorkoutSession(
+                user_id=user_id,
                 name=request.name or "Workout",
                 status="in_progress",
             )
@@ -163,10 +176,13 @@ class WorkoutService:
         return build_session_detail(db, session)
 
     @staticmethod
-    def log_sets(db: Session, session_id: UUID, request: LogSetsRequest):
+    def log_sets(db: Session, user_id: UUID, session_id: UUID, request: LogSetsRequest):
         session = (
             db.query(WorkoutSession)
-            .filter(WorkoutSession.id == session_id)
+            .filter(
+                WorkoutSession.id == session_id,
+                WorkoutSession.user_id == user_id,
+            )
             .first()
         )
         if session is None:
@@ -207,10 +223,13 @@ class WorkoutService:
         return build_session_detail(db, session)
 
     @staticmethod
-    def complete_session(db: Session, session_id: UUID):
+    def complete_session(db: Session, user_id: UUID, session_id: UUID):
         session = (
             db.query(WorkoutSession)
-            .filter(WorkoutSession.id == session_id)
+            .filter(
+                WorkoutSession.id == session_id,
+                WorkoutSession.user_id == user_id,
+            )
             .first()
         )
         if session is None:
@@ -221,7 +240,7 @@ class WorkoutService:
 
         # Advance the rotation cursor only for a day of the currently active plan.
         if session.plan_day_id is not None:
-            state = WorkoutService.get_state(db)
+            state = WorkoutService.get_state(db, user_id)
             if session.plan_id == state.active_plan_id:
                 state.last_completed_day_id = session.plan_day_id
 
@@ -230,10 +249,13 @@ class WorkoutService:
         return build_session_detail(db, session)
 
     @staticmethod
-    def abandon_session(db: Session, session_id: UUID):
+    def abandon_session(db: Session, user_id: UUID, session_id: UUID):
         session = (
             db.query(WorkoutSession)
-            .filter(WorkoutSession.id == session_id)
+            .filter(
+                WorkoutSession.id == session_id,
+                WorkoutSession.user_id == user_id,
+            )
             .first()
         )
         if session is None:
@@ -245,18 +267,22 @@ class WorkoutService:
         return build_session_detail(db, session)
 
     @staticmethod
-    def get_history(db: Session):
+    def get_history(db: Session, user_id: UUID):
         return (
             db.query(WorkoutSession)
+            .filter(WorkoutSession.user_id == user_id)
             .order_by(WorkoutSession.started_at.desc())
             .all()
         )
 
     @staticmethod
-    def get_session(db: Session, session_id: UUID):
+    def get_session(db: Session, user_id: UUID, session_id: UUID):
         session = (
             db.query(WorkoutSession)
-            .filter(WorkoutSession.id == session_id)
+            .filter(
+                WorkoutSession.id == session_id,
+                WorkoutSession.user_id == user_id,
+            )
             .first()
         )
         if session is None:

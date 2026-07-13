@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, date
+from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,7 +18,21 @@ class SkincareEntry(Base):
         default=uuid.uuid4,
     )
 
-    date: Mapped[date] = mapped_column(Date, unique=True)
+    # Owner of this entry. Nullable so the migration can add the column to
+    # existing rows; the first registered account claims the legacy NULL rows.
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
+    # One entry per (user, day). Was globally unique on `date` pre-multi-user.
+    date: Mapped[date] = mapped_column(Date)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_skincare_user_date"),
+    )
 
     face_wash: Mapped[bool] = mapped_column(Boolean, default=False)
     vitamin_c: Mapped[bool] = mapped_column(Boolean, default=False)

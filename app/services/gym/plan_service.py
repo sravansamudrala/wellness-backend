@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.gym.plan import PlanDay, PlanExercise, WorkoutPlan
@@ -12,13 +13,27 @@ from app.services.gym.workout_service import WorkoutService
 class PlanService:
 
     @staticmethod
-    def list_plans(db: Session):
-        return db.query(WorkoutPlan).order_by(WorkoutPlan.name.asc()).all()
+    def list_plans(db: Session, user_id: UUID):
+        # Shared templates (user_id IS NULL) plus this user's own custom plans.
+        return (
+            db.query(WorkoutPlan)
+            .filter(
+                or_(
+                    WorkoutPlan.user_id.is_(None),
+                    WorkoutPlan.user_id == user_id,
+                )
+            )
+            .order_by(WorkoutPlan.name.asc())
+            .all()
+        )
 
     @staticmethod
-    def get_plan(db: Session, plan_id: UUID):
+    def get_plan(db: Session, user_id: UUID, plan_id: UUID):
         plan = db.query(WorkoutPlan).filter(WorkoutPlan.id == plan_id).first()
         if plan is None:
+            return None
+        # Visible only if it's a template or belongs to this user.
+        if plan.user_id is not None and plan.user_id != user_id:
             return None
         return build_plan_detail(db, plan)
 
@@ -46,8 +61,9 @@ class PlanService:
                 )
 
     @staticmethod
-    def create_plan(db: Session, request: PlanCreateRequest):
+    def create_plan(db: Session, user_id: UUID, request: PlanCreateRequest):
         plan = WorkoutPlan(
+            user_id=user_id,
             name=request.name,
             description=request.description,
             goal=request.goal,
@@ -72,8 +88,15 @@ class PlanService:
         db.query(PlanDay).filter(PlanDay.plan_id == plan_id).delete()
 
     @staticmethod
-    def update_plan(db: Session, plan_id: UUID, request: PlanUpdateRequest):
-        plan = db.query(WorkoutPlan).filter(WorkoutPlan.id == plan_id).first()
+    def update_plan(
+        db: Session, user_id: UUID, plan_id: UUID, request: PlanUpdateRequest
+    ):
+        # Only your OWN plan can be edited (not shared templates).
+        plan = (
+            db.query(WorkoutPlan)
+            .filter(WorkoutPlan.id == plan_id, WorkoutPlan.user_id == user_id)
+            .first()
+        )
         if plan is None:
             return None
 
@@ -81,7 +104,6 @@ class PlanService:
         plan.description = request.description
         plan.goal = request.goal
 
-        # Full replace of the plan's days/exercises.
         PlanService._delete_days(db, plan_id)
         db.flush()
         PlanService._add_days(db, plan_id, request.days)
@@ -91,15 +113,24 @@ class PlanService:
         return build_plan_detail(db, plan)
 
     @staticmethod
-    def delete_plan(db: Session, plan_id: UUID) -> bool:
-        plan = db.query(WorkoutPlan).filter(WorkoutPlan.id == plan_id).first()
+    def delete_plan(db: Session, user_id: UUID, plan_id: UUID) -> bool:
+        # Only your own plan (templates can't be deleted by a user).
+        plan = (
+            db.query(WorkoutPlan)
+            .filter(WorkoutPlan.id == plan_id, WorkoutPlan.user_id == user_id)
+            .first()
+        )
         if plan is None:
             return False
 
         PlanService._delete_days(db, plan_id)
 
-        # If this was the active plan, clear the cursor so nothing dangles.
-        state = db.query(GymState).first()
+        # If this was the user's active plan, clear their cursor.
+        state = (
+            db.query(GymState)
+            .filter(GymState.user_id == user_id)
+            .first()
+        )
         if state is not None and state.active_plan_id == plan_id:
             state.active_plan_id = None
             state.last_completed_day_id = None
@@ -109,15 +140,25 @@ class PlanService:
         return True
 
     @staticmethod
-    def activate_plan(db: Session, plan_id: UUID):
-        plan = db.query(WorkoutPlan).filter(WorkoutPlan.id == plan_id).first()
+    def activate_plan(db: Session, user_id: UUID, plan_id: UUID):
+        # Can activate a template or your own plan.
+        plan = (
+            db.query(WorkoutPlan)
+            .filter(
+                WorkoutPlan.id == plan_id,
+                or_(
+                    WorkoutPlan.user_id.is_(None),
+                    WorkoutPlan.user_id == user_id,
+                ),
+            )
+            .first()
+        )
         if plan is None:
             return None
 
-        state = WorkoutService.get_state(db)
+        state = WorkoutService.get_state(db, user_id)
         state.active_plan_id = plan_id
-        # Reset the rotation to the start of the newly activated plan.
-        state.last_completed_day_id = None
+        state.last_completed_day_id = None  # restart rotation at day 1
 
         db.commit()
         db.refresh(state)

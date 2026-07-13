@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     # IANA timezone the reminder times are expressed in (Render runs UTC).
     reminder_timezone: str = "UTC"
 
+    # Auth: secret used to sign/verify JWTs. REQUIRED (no default) — a hardcoded
+    # fallback would let anyone forge tokens. Set JWT_SECRET in .env / Render.
+    jwt_secret: str
+    jwt_algorithm: str = "HS256"
+    # 30 days — this is a casual PWA, so keep users logged in a long time.
+    access_token_expire_minutes: int = 43200
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"

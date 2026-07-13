@@ -21,6 +21,15 @@ class WorkoutPlan(Base):
         default=uuid.uuid4,
     )
 
+    # NULL = a shared seeded template (visible to everyone); a value = a user's
+    # own custom plan (visible only to them).
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
     name: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 

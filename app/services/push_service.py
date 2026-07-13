@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from pywebpush import webpush, WebPushException
@@ -8,8 +9,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.push_subscription import PushSubscription
 from app.models.reminder_dispatch_log import ReminderDispatchLog
+from app.models.reminder_settings import ReminderSettings
 from app.schemas.push import PushSubscriptionRequest
-from app.services.reminder_service import ReminderService
 
 # How long after a reminder time we'll still send it (guards against a late or
 # missed cron tick without firing hours later).
@@ -25,7 +26,9 @@ SLOT_MESSAGES = {
 class PushService:
 
     @staticmethod
-    def save_subscription(db: Session, request: PushSubscriptionRequest) -> PushSubscription:
+    def save_subscription(
+        db: Session, user_id: UUID, request: PushSubscriptionRequest
+    ) -> PushSubscription:
         subscription = (
             db.query(PushSubscription)
             .filter(PushSubscription.endpoint == request.endpoint)
@@ -36,6 +39,8 @@ class PushService:
             subscription = PushSubscription(endpoint=request.endpoint)
             db.add(subscription)
 
+        # Attach (or re-attach) this device to the current user.
+        subscription.user_id = user_id
         subscription.p256dh = request.keys.p256dh
         subscription.auth = request.keys.auth
 
@@ -45,8 +50,13 @@ class PushService:
         return subscription
 
     @staticmethod
-    def send_to_all(db: Session, title: str, body: str):
-        subscriptions = db.query(PushSubscription).all()
+    def send_to_user(db: Session, user_id: UUID, title: str, body: str):
+        """Push to all of ONE user's devices. Returns (sent_count, errors)."""
+        subscriptions = (
+            db.query(PushSubscription)
+            .filter(PushSubscription.user_id == user_id)
+            .all()
+        )
 
         payload = json.dumps({"title": title, "body": body})
         vapid_claims = {"sub": settings.vapid_subject}
@@ -86,55 +96,68 @@ class PushService:
 
     @staticmethod
     def dispatch_due(db: Session) -> dict:
-        result = {"enabled": False, "sent": [], "errors": []}
-
-        reminder = ReminderService.get_settings(db)
-        if not reminder.notifications_enabled:
-            return result
-
-        result["enabled"] = True
+        """Cron entry point. For every user with notifications enabled, send any
+        slot that's due now (and not already sent today for that user)."""
+        result = {"processed_users": 0, "sent": [], "errors": []}
 
         now = datetime.now(ZoneInfo(settings.reminder_timezone))
         today = now.date()
         now_time = now.time()
 
-        slots = {
-            "morning": reminder.morning_time,
-            "evening": reminder.evening_time,
-        }
-
-        for slot, reminder_time in slots.items():
-            # Due only once we're past the reminder time and still within the
-            # grace window after it.
-            if now_time < reminder_time:
-                continue
-
-            reminder_dt = datetime.combine(today, reminder_time)
-            if now.replace(tzinfo=None) - reminder_dt > timedelta(minutes=GRACE_MINUTES):
-                continue
-
-            already = (
-                db.query(ReminderDispatchLog)
-                .filter(
-                    ReminderDispatchLog.sent_on == today,
-                    ReminderDispatchLog.slot == slot,
-                )
-                .first()
+        # Every user who has reminders turned on (multi-user: was one global row).
+        reminder_rows = (
+            db.query(ReminderSettings)
+            .filter(
+                ReminderSettings.notifications_enabled.is_(True),
+                ReminderSettings.user_id.isnot(None),
             )
-            if already is not None:
-                continue
+            .all()
+        )
 
-            # Send first, then record the dedup log only if at least one push
-            # was accepted — so a transient failure (bad key, provider hiccup)
-            # doesn't permanently consume today's slot; it retries next tick.
-            title, body = SLOT_MESSAGES[slot]
-            count, errs = PushService.send_to_all(db, title, body)
-            result["errors"].extend(errs)
+        for reminder in reminder_rows:
+            result["processed_users"] += 1
+            user_id = reminder.user_id
 
-            if count > 0:
-                db.add(ReminderDispatchLog(sent_on=today, slot=slot))
-                db.commit()
+            slots = {
+                "morning": reminder.morning_time,
+                "evening": reminder.evening_time,
+            }
 
-            result["sent"].append({"slot": slot, "subscriptions": count})
+            for slot, reminder_time in slots.items():
+                # Due only once we're past the reminder time and still within the
+                # grace window after it.
+                if now_time < reminder_time:
+                    continue
+
+                reminder_dt = datetime.combine(today, reminder_time)
+                if now.replace(tzinfo=None) - reminder_dt > timedelta(minutes=GRACE_MINUTES):
+                    continue
+
+                # Per-user dedup: one notification per (user, day, slot).
+                already = (
+                    db.query(ReminderDispatchLog)
+                    .filter(
+                        ReminderDispatchLog.user_id == user_id,
+                        ReminderDispatchLog.sent_on == today,
+                        ReminderDispatchLog.slot == slot,
+                    )
+                    .first()
+                )
+                if already is not None:
+                    continue
+
+                # Send first, then record the dedup log only if at least one push
+                # was accepted — so a transient failure doesn't consume the slot.
+                title, body = SLOT_MESSAGES[slot]
+                count, errs = PushService.send_to_user(db, user_id, title, body)
+                result["errors"].extend(errs)
+
+                if count > 0:
+                    db.add(ReminderDispatchLog(user_id=user_id, sent_on=today, slot=slot))
+                    db.commit()
+
+                result["sent"].append(
+                    {"user_id": str(user_id), "slot": slot, "subscriptions": count}
+                )
 
         return result
