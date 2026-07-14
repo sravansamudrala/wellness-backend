@@ -1,12 +1,18 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.gym.exercise import Exercise, MuscleGroup
 from app.models.gym.plan import PlanDay, PlanExercise, WorkoutPlan
 from app.models.gym.session import SessionExercise, SessionSet, WorkoutSession
 from app.models.gym.state import GymState
-from app.schemas.gym.session import LogSetsRequest, StartSessionRequest
+from app.schemas.gym.session import (
+    LogSetsRequest,
+    QuickLogRequest,
+    StartSessionRequest,
+)
 from app.schemas.gym.state import GymStateUpdateRequest
 from app.services.gym.builders import build_day_detail, build_session_detail
 
@@ -287,4 +293,88 @@ class WorkoutService:
         )
         if session is None:
             return None
+        return build_session_detail(db, session)
+
+    @staticmethod
+    def _derive_workout_name(db: Session, session_id: UUID) -> str:
+        """Name a session from the distinct muscle groups of its exercises, in the
+        order they were added, e.g. 'Back, Chest & Cardio'. 'Workout' if none."""
+        rows = (
+            db.query(Exercise.primary_muscle_group_id)
+            .join(SessionExercise, SessionExercise.exercise_id == Exercise.id)
+            .filter(SessionExercise.session_id == session_id)
+            .order_by(SessionExercise.order_index.asc())
+            .all()
+        )
+        ordered_ids = []
+        for (mg_id,) in rows:
+            if mg_id is not None and mg_id not in ordered_ids:
+                ordered_ids.append(mg_id)
+        if not ordered_ids:
+            return "Workout"
+
+        names_map = {
+            mg.id: mg.name
+            for mg in db.query(MuscleGroup).filter(MuscleGroup.id.in_(ordered_ids)).all()
+        }
+        names = [names_map[i] for i in ordered_ids if i in names_map]
+        if not names:
+            return "Workout"
+        if len(names) == 1:
+            return names[0]
+        return ", ".join(names[:-1]) + " & " + names[-1]
+
+    @staticmethod
+    def quick_log(db: Session, user_id: UUID, request: QuickLogRequest):
+        """Freestyle 'Log Workout'. Same-day saves MERGE into one workout: the
+        exercises are appended (deduped) to today's session, which is then
+        (re)named from the muscle groups trained. Weightless (one done set each)."""
+        today = date.today()
+        session = (
+            db.query(WorkoutSession)
+            .filter(
+                WorkoutSession.user_id == user_id,
+                WorkoutSession.status == "completed",
+                func.date(WorkoutSession.completed_at) == today,
+            )
+            .order_by(WorkoutSession.started_at.asc())
+            .first()
+        )
+
+        if session is None:
+            now = datetime.utcnow()
+            session = WorkoutSession(
+                user_id=user_id,
+                name="Workout",
+                status="completed",
+                started_at=now,
+                completed_at=now,
+            )
+            db.add(session)
+            db.flush()
+
+        existing_ids = {
+            se.exercise_id
+            for se in db.query(SessionExercise)
+            .filter(SessionExercise.session_id == session.id)
+            .all()
+        }
+        order = len(existing_ids)
+        for exercise_id in request.exercise_ids:
+            if exercise_id in existing_ids:
+                continue  # already logged today — dedupe
+            se = SessionExercise(
+                session_id=session.id, exercise_id=exercise_id, order_index=order
+            )
+            order += 1
+            db.add(se)
+            db.flush()
+            db.add(SessionSet(session_exercise_id=se.id, set_number=1, is_completed=True))
+            existing_ids.add(exercise_id)
+
+        # (Re)derive the name from everything now in the session.
+        session.name = request.name or WorkoutService._derive_workout_name(db, session.id)
+
+        db.commit()
+        db.refresh(session)
         return build_session_detail(db, session)

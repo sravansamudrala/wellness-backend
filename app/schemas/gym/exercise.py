@@ -22,6 +22,12 @@ class EquipmentResponse(BaseModel):
     }
 
 
+class ExerciseCreateRequest(BaseModel):
+    name: str
+    muscle_group_id: Optional[UUID] = None
+    category: Optional[str] = None
+
+
 class ExerciseResponse(BaseModel):
     id: UUID
     name: str
