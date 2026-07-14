@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.database.session import SessionLocal
 from app.schemas.gym.session import (
     LogSetsRequest,
+    QuickLogRequest,
     StartSessionRequest,
     WorkoutSessionDetailResponse,
     WorkoutSessionResponse,
@@ -78,6 +79,19 @@ def start_session(
 
     try:
         return WorkoutService.start_session(db, user_id, request)
+    finally:
+        db.close()
+
+
+@router.post("/sessions/quick-log", response_model=WorkoutSessionDetailResponse)
+def quick_log(
+    request: QuickLogRequest,
+    user_id: UUID = Depends(get_current_user),
+):
+    db: Session = SessionLocal()
+
+    try:
+        return WorkoutService.quick_log(db, user_id, request)
     finally:
         db.close()
 

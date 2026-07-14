@@ -35,6 +35,13 @@ class LogSetsRequest(BaseModel):
     exercises: List[SessionExerciseSetsInput] = []
 
 
+class QuickLogRequest(BaseModel):
+    """Freestyle 'Log Workout': a list of exercises done, saved as one completed
+    session (each exercise marked done, weightless)."""
+    name: Optional[str] = None
+    exercise_ids: List[UUID] = []
+
+
 # ----- Responses -----
 
 class SessionSetResponse(BaseModel):
