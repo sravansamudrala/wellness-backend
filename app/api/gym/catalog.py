@@ -8,12 +8,29 @@ from app.api.deps import get_current_user
 from app.database.session import SessionLocal
 from app.schemas.gym.exercise import (
     EquipmentResponse,
+    ExerciseCreateRequest,
     ExerciseResponse,
     MuscleGroupResponse,
 )
 from app.services.gym.catalog_service import CatalogService
 
 router = APIRouter(tags=["Gym — Catalog"])
+
+
+@router.post("/exercises", response_model=ExerciseResponse)
+def create_exercise(
+    request: ExerciseCreateRequest,
+    _user_id: UUID = Depends(get_current_user),
+):
+    """Add a custom exercise to the catalog (shared). Auth-gated like the rest."""
+    db: Session = SessionLocal()
+
+    try:
+        return CatalogService.create_exercise(
+            db, request.name, request.muscle_group_id, request.category
+        )
+    finally:
+        db.close()
 
 # NOTE: the catalog is SHARED master data — same for every user, so we do NOT
 # filter by user_id. The `_user_id` param only requires a valid login (auth

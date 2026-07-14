@@ -7,7 +7,35 @@ from app.models.gym.exercise import Equipment, Exercise, MuscleGroup
 
 
 class CatalogService:
-    """Read-only access to the Exercise Catalog master data."""
+    """Access to the Exercise Catalog master data (shared across users)."""
+
+    @staticmethod
+    def create_exercise(
+        db: Session,
+        name: str,
+        muscle_group_id: Optional[UUID] = None,
+        category: Optional[str] = None,
+    ) -> Exercise:
+        """Add a user-created exercise to the (shared) catalog.
+
+        Idempotent-ish: if an exercise with the same name already exists, return
+        it instead of creating a duplicate (exercises.name is unique).
+        """
+        name = name.strip()
+        existing = db.query(Exercise).filter(Exercise.name == name).first()
+        if existing is not None:
+            return existing
+
+        exercise = Exercise(
+            name=name,
+            primary_muscle_group_id=muscle_group_id,
+            category=category,
+            is_custom=True,
+        )
+        db.add(exercise)
+        db.commit()
+        db.refresh(exercise)
+        return exercise
 
     @staticmethod
     def list_exercises(
