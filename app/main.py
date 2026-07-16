@@ -10,6 +10,7 @@ from app.api.reminder_settings import router as reminder_settings_router
 from app.api.push import router as push_router
 from app.api.gym import router as gym_router
 from app.api.auth import router as auth_router
+from app.api.water import router as water_router
 
 app = FastAPI()
 app.add_middleware(
@@ -36,6 +37,7 @@ app.include_router(skincare_router)
 app.include_router(reminder_settings_router)
 app.include_router(push_router)
 app.include_router(gym_router)
+app.include_router(water_router)
 
 @app.get("/")
 def root():
