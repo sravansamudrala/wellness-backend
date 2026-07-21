@@ -81,11 +81,21 @@ Custom **JWT** auth (no third-party). Concepts documented in [docs/auth-notes.md
 - `GET /history` — every entry, newest first, each as a `SkincareHistoryItem` ([app/schemas/skincare_history.py](app/schemas/skincare_history.py)): `date`, `completed`/`total`/`progress` (completion over the 7 booleans), **plus all 7 booleans themselves**.
 - `GET /stats` — `SkincareStatsResponse` (in [app/schemas/skincare.py](app/schemas/skincare.py)): `current_streak`, `best_streak`, `total_days`, `average_completion`, and a `message` string. A "100%" day (all 7 booleans true) counts toward a streak; streaks are computed over **consecutive calendar days** and `current_streak` is anchored to today (`get_stats`). `message` is a **rule-based tiered template** (`_streak_message` in the service) — no LLM.
 
+## Water endpoints
+
+`WaterService` (all `@staticmethod`, in [app/services/water_service.py](app/services/water_service.py)) backs five routes under `/api/v1/water` ([app/api/water.py](app/api/water.py)), all per-user:
+
+- `GET /today` — get-or-create today's `WaterEntry` (same get-or-create pattern as skincare's `get_today`).
+- `POST /today/add` — add `amount_ml` (`AddWaterRequest`, `gt=0`) to today's entry.
+- `GET /history` — every entry, newest first.
+- `GET/PUT /settings` — get-or-create `WaterSettings` (`daily_goal_ml`, default 2000) / update it (`WaterSettingsUpdateRequest`, `gt=0`).
+- `GET /stats` — `WaterStatsResponse`: `current_streak`, `best_streak`, `total_days`, `average_completion` (0–100 int), `message` (rule-based, same streak-anchored-to-today approach as skincare/gym).
+
 ## Push notifications (reminders)
 
 Web Push reminders fire at the user's `morning_time`/`evening_time` even when the installed PWA is closed. Flow: the PWA subscribes and POSTs its subscription to the backend; an **external cron** (cron-job.org) hits the dispatch endpoint every ~10 min; the endpoint checks the schedule and pushes via `pywebpush`.
 
-- **Endpoints** ([app/api/push.py](app/api/push.py), prefix `/api/v1/push`): `POST /subscribe` (store the browser subscription); `POST /dispatch?token=<DISPATCH_TOKEN>` (token-guarded; the cron caller). `dispatch` returns `{enabled, sent, errors}` — `errors` carries per-send failure detail for debugging.
+- **Endpoints** ([app/api/push.py](app/api/push.py), prefix `/api/v1/push`): `POST /subscribe` (store the browser subscription); `POST /dispatch?token=<DISPATCH_TOKEN>` (token-guarded; the cron caller). `dispatch` returns `{processed_users, sent, errors}` — `errors` carries per-send failure detail for debugging.
 - **`PushService.dispatch_due`** ([app/services/push_service.py](app/services/push_service.py)): if notifications enabled, for each slot due *now* (at/after the reminder time, within a 60-min grace window) and **not already sent today**, push to **all** stored subscriptions and record a dedup row. **One notification per slot per day** — a `ReminderDispatchLog` row keyed `(sent_on, slot)` is the guard; it's written only *after* a successful send, and dead subscriptions (404/410) are auto-deleted.
 - **New tables** (`push_subscriptions`, `reminder_dispatch_log`) are created by `create_all` — no migration needed.
 - **Setup (env, one-time):** `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (VAPID keypair), `VAPID_SUBJECT`, `DISPATCH_TOKEN` (cron secret), `REMINDER_TIMEZONE` (IANA, e.g. `Asia/Kolkata` — Render runs UTC, so this must be set or reminders fire at the wrong hour). The frontend needs `VITE_VAPID_PUBLIC_KEY` = the same public key. Cron: `POST .../api/v1/push/dispatch?token=...` every 10 min.
@@ -93,14 +103,14 @@ Web Push reminders fire at the user's `morning_time`/`evening_time` even when th
 
 ## Gym module
 
-The first **large** module — a **subpackage per layer** (`app/{models,schemas,services,api}/gym/`) rather than one flat file. Everything mounts under `/api/v1/gym` via an aggregate router in [app/api/gym/\_\_init\_\_.py](app/api/gym/__init__.py) (which `include_router`s `catalog`, `plans`, `workouts`, `insights`). Still single-user: no `user_id`, and the workout cursor is a singleton row.
+The first **large** module — a **subpackage per layer** (`app/{models,schemas,services,api}/gym/`) rather than one flat file. Everything mounts under `/api/v1/gym` via an aggregate router in [app/api/gym/\_\_init\_\_.py](app/api/gym/__init__.py) (which `include_router`s `catalog`, `plans`, `workouts`, `insights`). Now per-user like the rest of the app (see **Authentication & per-user data**): `gym_state`, `workout_sessions`, and custom `workout_plans` all carry `user_id`.
 
 **MVP intent:** workout *tracking + consistency*, not analytics. Deliberately **deferred** (add later as additive Alembic migrations, no redesign): exercise↔muscle M2M with roles, equipment M2M, exercise alternatives, and a PR cache table. MVP uses single nullable FKs (`exercises.primary_muscle_group_id`, `exercises.equipment_id`) and derives PRs on the fly.
 
 **10 tables** (models in [app/models/gym/](app/models/gym/)):
 - **Catalog (seeded master data):** `muscle_groups`, `equipment`, `exercises` (single-source-of-truth; media/instructions/difficulty are columns, not tables).
 - **Plans (data, not hardcoded):** `workout_plans` → `plan_days` (`order_index` = rotation order) → `plan_exercises` (targets; `target_reps` is a String like `"8-12"`).
-- **Cursor:** `gym_state` — **singleton** (`WorkoutService.get_state`, get-or-create). Holds `active_plan_id`, `last_completed_day_id` (the queue anchor), and `unit` (`"kg"`/`"lb"` display pref; storage is always canonical **kg** in `session_sets.weight_kg`).
+- **Cursor:** `gym_state` — **one row per user** (`WorkoutService.get_state`, get-or-create, unique `user_id`). Holds `active_plan_id`, `last_completed_day_id` (the queue anchor), and `unit` (`"kg"`/`"lb"` display pref; storage is always canonical **kg** in `session_sets.weight_kg`).
 - **Sessions (source of truth for insights):** `workout_sessions` (status `in_progress`/`completed`/`abandoned`; `plan_day_id`/`plan_id` nullable for freestyle; `name` snapshots the day so history survives plan edits) → `session_exercises` → `session_sets`.
 
 **Execution is a queue, not a calendar** ([workout_service.py](app/services/gym/workout_service.py)): `get_next_day` = the `plan_day` after `last_completed_day_id` by `order_index`, **wrapping** to the first. Skipping days never changes what's next. `complete_session` advances the cursor only for a day of the currently active plan. **One in-progress session at a time** — `start_session` resumes the existing one; if starting from a plan day it seeds `session_exercises` from `plan_exercises`. `PUT /sessions/{id}/sets` **replaces** the sets for each listed session-exercise.

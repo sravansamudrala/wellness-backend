@@ -21,8 +21,10 @@ app.add_middleware(
     ],
     # Match every Vercel deployment URL for this project (production alias +
     # per-deploy/preview hashes like wellness-tracker-<hash>-ssk12.vercel.app),
-    # so a new Vercel URL never breaks CORS again. The API has no auth, so this
-    # is not a security boundary.
+    # so a new Vercel URL never breaks CORS again. Authorization is enforced by
+    # the JWT gate (app/api/deps.py), not by this allow-list — CORS only
+    # controls which browser origins may call the API, it isn't itself a
+    # security boundary.
     allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
