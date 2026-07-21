@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     # Log every SQL statement (noisy — keep off in production).
     sql_echo: bool = False
 
+    # App-level logging (auth events, push dispatch results, etc).
+    log_level: str = "INFO"
+
     # Web Push (VAPID). Generate a keypair once and set these in the env.
     vapid_public_key: str = ""
     vapid_private_key: str = ""
