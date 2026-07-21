@@ -10,7 +10,7 @@ from app.database.base import Base
 
 
 class GymState(Base):
-    """Singleton cursor for the queue-based workout engine (single-user app).
+    """Per-user cursor for the queue-based workout engine (one row per user).
 
     Holds the active plan and the rotation position. "Next workout" is derived as the
     plan_day after last_completed_day_id (by order_index), wrapping to the first day.
