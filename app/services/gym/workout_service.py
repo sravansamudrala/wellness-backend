@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from app.schemas.gym.session import (
 )
 from app.schemas.gym.state import GymStateUpdateRequest
 from app.services.gym.builders import build_day_detail, build_session_detail
+
+logger = logging.getLogger(__name__)
 
 
 class WorkoutService:
@@ -76,7 +79,9 @@ class WorkoutService:
             idx = ids.index(state.last_completed_day_id)
             return days[(idx + 1) % len(days)]
 
-        # Cursor points at a day not in the active plan (e.g. plan changed) — restart.
+        # The user's last-completed day isn't in their current plan anymore
+        # (they switched plans) — so just start over from day 1.
+        logger.info("User %s switched plans — restarting from day 1", user_id)
         return days[0]
 
     @staticmethod
