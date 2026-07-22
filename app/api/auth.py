@@ -1,8 +1,6 @@
 from uuid import UUID
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
 from app.api.deps import get_current_user
 from app.core.security import create_access_token
 from app.database.session import SessionLocal
@@ -14,23 +12,26 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.auth_service import AuthService
+from fastapi import Request
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(request: RegisterRequest):
+@limiter.limit("5/minute")
+def register(payload: RegisterRequest, request: Request):
     db: Session = SessionLocal()
 
     try:
         # Minimal password rule. (bcrypt also caps input at 72 bytes.)
-        if len(request.password) < 8:
+        if len(payload.password) < 8:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Password must be at least 8 characters.",
             )
 
-        user = AuthService.register(db, request.email, request.password)
+        user = AuthService.register(db, payload.email, payload.password)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -44,11 +45,12 @@ def register(request: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest):
+@limiter.limit("5/minute")
+def login(payload: LoginRequest, request: Request):
     db: Session = SessionLocal()
 
     try:
-        user = AuthService.authenticate(db, request.email, request.password)
+        user = AuthService.authenticate(db, payload.email, payload.password)
         if user is None:
             # One generic message for both "no such email" and "wrong
             # password" — don't reveal which emails exist.

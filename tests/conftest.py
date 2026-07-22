@@ -1,10 +1,10 @@
 import os
-
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5433/wellness_test")
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-real-use")
-
 import pytest
 from fastapi.testclient import TestClient
+from app.core.rate_limit import limiter
+limiter.enabled = False
 from app.main import app
 
 
