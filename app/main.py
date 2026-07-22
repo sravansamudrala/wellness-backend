@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from app.database.base import Base
@@ -50,19 +50,6 @@ app.include_router(water_router)
 @app.get("/")
 def root():
     return {"message": "AI Wellness API is running"}
-
-
-@app.get("/debug/ip")
-def debug_ip(request: Request):
-    """TEMPORARY — remove once we've confirmed how Render forwards client IPs
-    to the rate limiter's key_func. Not auth-gated on purpose: we need to hit
-    it from arbitrary networks (phone, laptop, etc) to compare results."""
-    return {
-        "client_host": request.client.host if request.client else None,
-        "x_forwarded_for": request.headers.get("x-forwarded-for"),
-        "true_client_ip": request.headers.get("true-client-ip"),
-        "cf_connecting_ip": request.headers.get("cf-connecting-ip"),
-    }
 
 
 @app.get("/health/db")
