@@ -2,6 +2,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.security import create_access_token
 from app.database.session import SessionLocal
 from app.models.user import User
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
 @router.post("/register", response_model=TokenResponse)
-@limiter.limit("5/minute")
+@limiter.limit(settings.auth_rate_limit)
 def register(payload: RegisterRequest, request: Request):
     db: Session = SessionLocal()
 
@@ -45,7 +46,7 @@ def register(payload: RegisterRequest, request: Request):
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("5/minute")
+@limiter.limit(settings.auth_rate_limit)
 def login(payload: LoginRequest, request: Request):
     db: Session = SessionLocal()
 
