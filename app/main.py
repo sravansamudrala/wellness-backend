@@ -13,7 +13,9 @@ from app.api.water import router as water_router
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.core.rate_limit import limiter
+from app.core.logging import setup_logging
 
+setup_logging()
 app = FastAPI()
 
 app.state.limiter = limiter
