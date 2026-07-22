@@ -2,15 +2,16 @@ import json
 from datetime import datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
-
 from pywebpush import webpush, WebPushException
 from sqlalchemy.orm import Session
-
 from app.core.config import settings
 from app.models.push_subscription import PushSubscription
 from app.models.reminder_dispatch_log import ReminderDispatchLog
 from app.models.reminder_settings import ReminderSettings
 from app.schemas.push import PushSubscriptionRequest
+import logging
+
+logger = logging.getLogger(__name__)
 
 # How long after a reminder time we'll still send it (guards against a late or
 # missed cron tick without firing hours later).
@@ -84,12 +85,16 @@ class PushService:
                 status = getattr(exc.response, "status_code", None)
                 detail = exc.response.text[:200] if exc.response is not None else str(exc)
                 errors.append({"type": "WebPushException", "status": status, "detail": detail})
+                logger.warning("Push failed for subscription %s: %s (status %s)", subscription.id, detail, status)
                 if status in (404, 410):
+                    logger.info("Dropping dead subscription %s (status %s)", subscription.id, status)
                     db.delete(subscription)
             except Exception as exc:
                 # Bad VAPID key, encryption error, etc. — isolate the failure
                 # so one bad subscription can't 500 the whole dispatch.
                 errors.append({"type": type(exc).__name__, "detail": str(exc)[:200]})
+                logger.error("Unexpected push failure for subscription %s: %s", subscription.id, exc, exc_info=True)
+
 
         db.commit()
         return sent, errors
@@ -159,5 +164,10 @@ class PushService:
                 result["sent"].append(
                     {"user_id": str(user_id), "slot": slot, "subscriptions": count}
                 )
-
+        logger.info(
+            "Push dispatch: %d users processed, %d notifications sent, %d errors",
+            result["processed_users"],
+            len(result["sent"]),
+            len(result["errors"]),
+        )
         return result
