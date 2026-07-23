@@ -1,9 +1,10 @@
 from typing import Optional
-
 from sqlalchemy.orm import Session
-
 from app.core.security import hash_password, verify_password
 from app.models.user import User
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -35,7 +36,9 @@ class AuthService:
 
         user = db.query(User).filter(User.email == email).first()
         if user is None:
+            logger.warning("Failed login attempt for non-existent user: %s", email)
             return None
         if not verify_password(password, user.hashed_password):
+            logger.warning("Login failed: wrong password for %s", email)
             return None
         return user

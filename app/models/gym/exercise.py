@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 
@@ -74,6 +74,12 @@ class Exercise(Base):
         index=True,
     )
 
+    # lazy="joined" so listing many exercises doesn't trigger one extra query per
+    # exercise just to read the muscle group's name.
+    primary_muscle_group: Mapped[Optional["MuscleGroup"]] = relationship(
+        "MuscleGroup", foreign_keys=[primary_muscle_group_id], lazy="joined"
+    )
+
     equipment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("equipment.id"),
@@ -100,3 +106,7 @@ class Exercise(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
+
+    @property
+    def primary_muscle_group_name(self) -> Optional[str]:
+        return self.primary_muscle_group.name if self.primary_muscle_group else None

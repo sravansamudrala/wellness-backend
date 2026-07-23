@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
 import app.models
@@ -11,8 +10,17 @@ from app.api.push import router as push_router
 from app.api.gym import router as gym_router
 from app.api.auth import router as auth_router
 from app.api.water import router as water_router
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.core.rate_limit import limiter
+from app.core.logging import setup_logging
 
+setup_logging()
 app = FastAPI()
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -24,8 +32,10 @@ app.add_middleware(
     # so a new Vercel URL never breaks CORS again. Authorization is enforced by
     # the JWT gate (app/api/deps.py), not by this allow-list — CORS only
     # controls which browser origins may call the API, it isn't itself a
-    # security boundary.
-    allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app",
+    # security boundary. Also match any localhost port — Vite auto-increments
+    # (5173 -> 5174 -> ...) whenever the default port is already taken, so a
+    # fixed allow_origins entry breaks the moment that happens.
+    allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

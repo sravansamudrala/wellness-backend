@@ -8,3 +8,4 @@ __pycache__/
 .coverage
 htmlcov/*.code-workspace
 TODO.md
+docs/python-learning-doc.md
