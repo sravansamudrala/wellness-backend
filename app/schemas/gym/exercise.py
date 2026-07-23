@@ -33,6 +33,7 @@ class ExerciseResponse(BaseModel):
     name: str
     category: Optional[str] = None
     primary_muscle_group_id: Optional[UUID] = None
+    primary_muscle_group_name: Optional[str] = None
     equipment_id: Optional[UUID] = None
     difficulty: Optional[str] = None
     instructions: Optional[str] = None
