@@ -22,6 +22,10 @@ class MuscleGroup(Base):
 
     name: Mapped[str] = mapped_column(String, unique=True, index=True)
 
+    # One shared reference image for every exercise in this group (e.g. one
+    # "Chest" icon shown for all chest exercises) — not per-exercise.
+    image_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,

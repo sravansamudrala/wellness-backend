@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class MuscleGroupResponse(BaseModel):
     id: UUID
     name: str
+    image_url: Optional[str] = None
 
     model_config = {
         "from_attributes": True

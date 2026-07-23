@@ -109,3 +109,16 @@ impersonate). It comes from the token.
 - Verify signature AND expiry on every request.
 - Never put secrets in the payload (it's readable).
 - Never store plaintext passwords or log tokens.
+
+## 11. Secrets rotation plan — what to actually do if one leaks
+
+No tooling needed for this app's scale (solo maintainer) — just knowing the steps per secret:
+
+| Secret | If it leaks, do this | Consequence of rotating |
+|---|---|---|
+| `JWT_SECRET` | Generate a new value (`python -c "import secrets; print(secrets.token_urlsafe(64))"`), update in Render + redeploy. | **Every** existing token fails verification instantly — all users logged out, must log in again. Cheap, acceptable. |
+| `DATABASE_URL` | Rotate the DB password from Supabase's dashboard, update `DATABASE_URL` in Render + local `.env`, redeploy. | Brief reconnect blip only. **Highest urgency to rotate fast** — this is the one that exposes actual user data (real DB access) if delayed. |
+| `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` | Generate a fresh VAPID keypair, update both the backend env var and the frontend's `VITE_VAPID_PUBLIC_KEY`, redeploy both. | Every existing push subscription breaks (tied to the old public key) — users must reopen the PWA to re-subscribe. Lower urgency; leaked key alone isn't very exploitable without separately-obtained subscriber endpoints. |
+| `DISPATCH_TOKEN` | Generate a new token, update in Render, update the saved URL in the cron-job.org config, redeploy. | Low actual damage if leaked before rotating — sends are already deduped per `(user, day, slot)`, so worst case is wasted compute, not spam. |
+
+None of these require a code change — rotation here just means "generate a new value, update it in Render/`.env`/the cron config, redeploy." The only thing worth remembering: `DATABASE_URL` is the one to act on fastest, since it's the only leak with a direct path to real user data.
