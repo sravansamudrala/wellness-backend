@@ -32,8 +32,10 @@ app.add_middleware(
     # so a new Vercel URL never breaks CORS again. Authorization is enforced by
     # the JWT gate (app/api/deps.py), not by this allow-list — CORS only
     # controls which browser origins may call the API, it isn't itself a
-    # security boundary.
-    allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app",
+    # security boundary. Also match any localhost port — Vite auto-increments
+    # (5173 -> 5174 -> ...) whenever the default port is already taken, so a
+    # fixed allow_origins entry breaks the moment that happens.
+    allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
