@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 43200
 
     # slowapi rate-limit string for /register and /login, e.g. "5/minute".
-    auth_rate_limit: str = "5/minute"
+    auth_rate_limit: str = "10/minute"
 
     model_config = SettingsConfigDict(
         env_file=".env",
