@@ -1,4 +1,3 @@
-import logging
 from datetime import date, datetime
 from uuid import UUID
 
@@ -11,8 +10,6 @@ from app.models.gym.state import GymState
 from app.schemas.gym.session import QuickLogRequest
 from app.schemas.gym.state import GymStateUpdateRequest
 from app.services.gym.builders import build_session_detail
-
-logger = logging.getLogger(__name__)
 
 # Default cycle for the "next up" suggestion in Log Workout. Cardio and Core are
 # deliberately excluded — logged alongside whatever day it is, not their own turn.
