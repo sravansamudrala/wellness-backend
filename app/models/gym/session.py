@@ -10,10 +10,9 @@ from app.database.base import Base
 
 
 class WorkoutSession(Base):
-    """A workout instance — the source of truth for all insights. An in-progress
-    session IS the "current workout" (no separate entity). plan_day_id/plan_id are
-    nullable (freestyle allowed); name snapshots the day name so history survives
-    later plan edits/deletes."""
+    """A workout instance — the source of truth for all insights. Created only via
+    the freestyle Log Workout flow, always already "completed" (no in-progress
+    lifecycle)."""
 
     __tablename__ = "workout_sessions"
 
@@ -30,19 +29,6 @@ class WorkoutSession(Base):
         ForeignKey("users.id"),
         nullable=True,
         index=True,
-    )
-
-    plan_day_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("plan_days.id"),
-        nullable=True,
-        index=True,
-    )
-
-    plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("workout_plans.id"),
-        nullable=True,
     )
 
     name: Mapped[str] = mapped_column(String)

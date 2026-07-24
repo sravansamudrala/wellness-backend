@@ -29,13 +29,16 @@ class ExerciseCreateRequest(BaseModel):
     category: Optional[str] = None
 
 
+class ExerciseUpdateRequest(BaseModel):
+    name: str
+
+
 class ExerciseResponse(BaseModel):
     id: UUID
     name: str
     category: Optional[str] = None
     primary_muscle_group_id: Optional[UUID] = None
     primary_muscle_group_name: Optional[str] = None
-    equipment_id: Optional[UUID] = None
     difficulty: Optional[str] = None
     instructions: Optional[str] = None
     image_url: Optional[str] = None
