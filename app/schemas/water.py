@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -23,6 +23,9 @@ class AddWaterRequest(BaseModel):
 class WaterSettingsResponse(BaseModel):
     id: UUID
     daily_goal_ml: int
+    reminders_enabled: bool
+    reminder_start_time: time
+    reminder_end_time: time
     created_at: datetime
     updated_at: datetime
 
@@ -33,6 +36,9 @@ class WaterSettingsResponse(BaseModel):
 
 class WaterSettingsUpdateRequest(BaseModel):
     daily_goal_ml: int = Field(gt=0, description="Daily water intake goal in milliliters. Must be greater than 0.")
+    reminders_enabled: bool
+    reminder_start_time: time
+    reminder_end_time: time
 
 
 

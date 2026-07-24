@@ -41,6 +41,12 @@ def dispatch(token: str = Query(default="")):
     db: Session = SessionLocal()
 
     try:
-        return PushService.dispatch_due(db)
+        skincare_result = PushService.dispatch_due(db)
+        water_result = PushService.dispatch_water_due(db)
+        return {
+            "processed_users": skincare_result["processed_users"] + water_result["processed_users"],
+            "sent": skincare_result["sent"] + water_result["sent"],
+            "errors": skincare_result["errors"] + water_result["errors"],
+        }
     finally:
         db.close()

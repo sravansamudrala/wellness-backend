@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, time
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,6 +59,12 @@ class WaterSettings(Base):
     )
 
     daily_goal_ml: Mapped[int] = mapped_column(Integer, default=2000)
+
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Hourly reminders fire on the hour within [reminder_start_time, reminder_end_time].
+    reminder_start_time: Mapped[time] = mapped_column(Time, default=time(9, 0))
+    reminder_end_time: Mapped[time] = mapped_column(Time, default=time(21, 0))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

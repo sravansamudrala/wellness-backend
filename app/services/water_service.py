@@ -100,6 +100,9 @@ class WaterService:
         settings = WaterService.get_settings(db, user_id)
 
         settings.daily_goal_ml = request.daily_goal_ml
+        settings.reminders_enabled = request.reminders_enabled
+        settings.reminder_start_time = request.reminder_start_time
+        settings.reminder_end_time = request.reminder_end_time
 
         db.commit()
         db.refresh(settings)
