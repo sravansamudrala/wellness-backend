@@ -23,6 +23,7 @@ from app.models.reminder_dispatch_log import ReminderDispatchLog
 from app.models.reminder_settings import ReminderSettings
 from app.models.skincare import SkincareEntry
 from app.models.user import User
+from app.models.water import WaterEntry, WaterSettings
 
 
 def main() -> None:
@@ -99,6 +100,12 @@ def main() -> None:
             ReminderDispatchLog.user_id == uid
         ).delete(synchronize_session=False)
         db.query(PushSubscription).filter(PushSubscription.user_id == uid).delete(
+            synchronize_session=False
+        )
+        db.query(WaterEntry).filter(WaterEntry.user_id == uid).delete(
+            synchronize_session=False
+        )
+        db.query(WaterSettings).filter(WaterSettings.user_id == uid).delete(
             synchronize_session=False
         )
 

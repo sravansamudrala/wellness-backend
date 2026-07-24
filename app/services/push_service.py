@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from pywebpush import webpush, WebPushException
@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.models.push_subscription import PushSubscription
 from app.models.reminder_dispatch_log import ReminderDispatchLog
 from app.models.reminder_settings import ReminderSettings
+from app.models.water import WaterEntry, WaterSettings
 from app.schemas.push import PushSubscriptionRequest
 import logging
 
@@ -22,6 +23,8 @@ SLOT_MESSAGES = {
     "morning": ("🧴 Morning skincare", "Time for your morning routine!"),
     "evening": ("🌙 Evening skincare", "Time to wind down — evening routine!"),
 }
+
+WATER_MESSAGE = ("💧 Hydration check", "Time to drink some water!")
 
 
 class PushService:
@@ -166,6 +169,85 @@ class PushService:
                 )
         logger.info(
             "Push dispatch: %d users processed, %d notifications sent, %d errors",
+            result["processed_users"],
+            len(result["sent"]),
+            len(result["errors"]),
+        )
+        return result
+
+    @staticmethod
+    def dispatch_water_due(db: Session) -> dict:
+        """Cron entry point. For every user with hourly water reminders enabled,
+        send once per hour within their configured window — skipping a user who
+        already hit today's goal, and deduping via the same dispatch log keyed
+        by an hour-specific slot (e.g. "water_14")."""
+        result = {"processed_users": 0, "sent": [], "errors": []}
+
+        now = datetime.now(ZoneInfo(settings.reminder_timezone))
+        today = now.date()
+        now_naive = now.replace(tzinfo=None)
+
+        water_settings_rows = (
+            db.query(WaterSettings)
+            .filter(WaterSettings.reminders_enabled.is_(True))
+            .all()
+        )
+
+        for water_settings in water_settings_rows:
+            result["processed_users"] += 1
+            user_id = water_settings.user_id
+
+            # Skip once today's goal is already met.
+            entry = (
+                db.query(WaterEntry)
+                .filter(WaterEntry.user_id == user_id, WaterEntry.date == today)
+                .first()
+            )
+            if entry is not None and entry.amount_ml >= water_settings.daily_goal_ml:
+                continue
+
+            start_hour = water_settings.reminder_start_time.hour
+            end_hour = water_settings.reminder_end_time.hour
+
+            for hour in range(start_hour, end_hour + 1):
+                reminder_dt = datetime.combine(today, time(hour, 0))
+
+                # Due only once we're past the hour mark and still within the
+                # grace window after it.
+                if now_naive < reminder_dt:
+                    continue
+                if now_naive - reminder_dt > timedelta(minutes=GRACE_MINUTES):
+                    continue
+
+                slot = f"water_{hour:02d}"
+
+                # Per-user dedup: one notification per (user, day, hour).
+                already = (
+                    db.query(ReminderDispatchLog)
+                    .filter(
+                        ReminderDispatchLog.user_id == user_id,
+                        ReminderDispatchLog.sent_on == today,
+                        ReminderDispatchLog.slot == slot,
+                    )
+                    .first()
+                )
+                if already is not None:
+                    continue
+
+                title, body = WATER_MESSAGE
+                count, errs = PushService.send_to_user(db, user_id, title, body)
+                result["errors"].extend(errs)
+
+                if count > 0:
+                    db.add(ReminderDispatchLog(user_id=user_id, sent_on=today, slot=slot))
+                    db.commit()
+
+                result["sent"].append(
+                    {"user_id": str(user_id), "slot": slot, "subscriptions": count}
+                )
+
+        logger.info(
+            "Water push dispatch: %d users processed, %d notifications sent, %d errors",
             result["processed_users"],
             len(result["sent"]),
             len(result["errors"]),
