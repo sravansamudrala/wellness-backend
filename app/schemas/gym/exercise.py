@@ -14,19 +14,14 @@ class MuscleGroupResponse(BaseModel):
     }
 
 
-class EquipmentResponse(BaseModel):
-    id: UUID
-    name: str
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
 class ExerciseCreateRequest(BaseModel):
     name: str
     muscle_group_id: Optional[UUID] = None
     category: Optional[str] = None
+
+
+class ExerciseUpdateRequest(BaseModel):
+    name: str
 
 
 class ExerciseResponse(BaseModel):
@@ -35,7 +30,6 @@ class ExerciseResponse(BaseModel):
     category: Optional[str] = None
     primary_muscle_group_id: Optional[UUID] = None
     primary_muscle_group_name: Optional[str] = None
-    equipment_id: Optional[UUID] = None
     difficulty: Optional[str] = None
     instructions: Optional[str] = None
     image_url: Optional[str] = None

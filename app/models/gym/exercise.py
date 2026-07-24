@@ -32,30 +32,11 @@ class MuscleGroup(Base):
     )
 
 
-class Equipment(Base):
-    """Master-data lookup (barbell, dumbbell, machine, bodyweight, …)."""
-
-    __tablename__ = "equipment"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-
-    name: Mapped[str] = mapped_column(String, unique=True, index=True)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-    )
-
-
 class Exercise(Base):
     """The Exercise Catalog — single source of truth for every trackable movement.
 
-    Muscle group and equipment are single nullable FKs for the MVP; the many-to-many
-    upgrades (roles, multiple equipment, alternatives) are deferred additive migrations.
+    Muscle group is a single nullable FK for the MVP; a many-to-many upgrade
+    (multiple roles, alternatives) is a deferred additive migration.
     """
 
     __tablename__ = "exercises"
@@ -82,13 +63,6 @@ class Exercise(Base):
     # exercise just to read the muscle group's name.
     primary_muscle_group: Mapped[Optional["MuscleGroup"]] = relationship(
         "MuscleGroup", foreign_keys=[primary_muscle_group_id], lazy="joined"
-    )
-
-    equipment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("equipment.id"),
-        nullable=True,
-        index=True,
     )
 
     # e.g. "beginner" / "intermediate" / "advanced".

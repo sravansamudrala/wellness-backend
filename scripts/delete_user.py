@@ -15,7 +15,6 @@ Usage:
 import argparse
 
 from app.database.session import SessionLocal
-from app.models.gym.plan import PlanDay, PlanExercise, WorkoutPlan
 from app.models.gym.session import SessionExercise, SessionSet, WorkoutSession
 from app.models.gym.state import GymState
 from app.models.push_subscription import PushSubscription
@@ -63,33 +62,12 @@ def main() -> None:
                 WorkoutSession.user_id == uid
             ).delete(synchronize_session=False)
 
-        # 2) Gym cursor (references plans/days by FK, but nothing references it).
+        # 2) Gym settings (unit preference + rotation order).
         db.query(GymState).filter(GymState.user_id == uid).delete(
             synchronize_session=False
         )
 
-        # 3) The user's OWN custom plans + children (templates are user_id NULL → kept).
-        plan_ids = [
-            p.id
-            for p in db.query(WorkoutPlan).filter(WorkoutPlan.user_id == uid).all()
-        ]
-        if plan_ids:
-            day_ids = [
-                d.id
-                for d in db.query(PlanDay).filter(PlanDay.plan_id.in_(plan_ids)).all()
-            ]
-            if day_ids:
-                db.query(PlanExercise).filter(
-                    PlanExercise.plan_day_id.in_(day_ids)
-                ).delete(synchronize_session=False)
-            db.query(PlanDay).filter(PlanDay.plan_id.in_(plan_ids)).delete(
-                synchronize_session=False
-            )
-            db.query(WorkoutPlan).filter(WorkoutPlan.id.in_(plan_ids)).delete(
-                synchronize_session=False
-            )
-
-        # 4) Remaining user-owned rows.
+        # 3) Remaining user-owned rows.
         db.query(SkincareEntry).filter(SkincareEntry.user_id == uid).delete(
             synchronize_session=False
         )
