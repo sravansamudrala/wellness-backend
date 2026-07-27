@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import socket
 from email.message import EmailMessage
 
 from app.core.config import settings
@@ -7,7 +8,23 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 465
+SMTP_PORT = 587
+
+
+class _IPv4SMTP(smtplib.SMTP):
+    """smtplib.SMTP, but forced to connect over IPv4.
+
+    Some hosts (Render included) resolve smtp.gmail.com's IPv6 address first
+    but have no outbound IPv6 route, which fails with "Network is
+    unreachable" before TLS is even attempted. Forcing AF_INET here — while
+    leaving self._host as the real hostname — fixes the connection without
+    breaking STARTTLS's hostname verification (which uses self._host, not
+    the resolved address).
+    """
+
+    def _get_socket(self, host, port, timeout):
+        addr = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0][4]
+        return socket.create_connection(addr, timeout, self.source_address)
 
 
 def send_email(to: str, subject: str, html: str) -> None:
@@ -28,7 +45,8 @@ def send_email(to: str, subject: str, html: str) -> None:
     msg.set_content(html, subtype="html")
 
     try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        with _IPv4SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.starttls()
             server.login(settings.gmail_address, settings.gmail_app_password)
             server.send_message(msg)
     except (smtplib.SMTPException, OSError):
