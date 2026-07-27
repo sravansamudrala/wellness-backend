@@ -14,15 +14,6 @@ class MuscleGroupResponse(BaseModel):
     }
 
 
-class EquipmentResponse(BaseModel):
-    id: UUID
-    name: str
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
 class ExerciseCreateRequest(BaseModel):
     name: str
     muscle_group_id: Optional[UUID] = None

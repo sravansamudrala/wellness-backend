@@ -3,19 +3,14 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.skincare_habit import SkincareEntryHabitResponse, SkincareHabitCompletionItem
+
 
 class SkincareResponse(BaseModel):
     id: UUID
     date: date
 
-    face_wash: bool
-    vitamin_c: bool
-    moisturizer: bool
-    sunscreen: bool
-    lipcare: bool
-
-    cleanser: bool
-    evening_moisturizer: bool
+    habits: list[SkincareEntryHabitResponse]
 
     created_at: datetime
     updated_at: datetime
@@ -32,10 +27,4 @@ class SkincareStatsResponse(BaseModel):
     message: str
 
 class SkincareUpdateRequest(BaseModel):
-    face_wash: bool
-    vitamin_c: bool
-    moisturizer: bool
-    sunscreen: bool
-    cleanser: bool
-    evening_moisturizer: bool
-    lipcare: bool
+    habits: list[SkincareHabitCompletionItem]

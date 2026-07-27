@@ -2,6 +2,8 @@ from datetime import date
 
 from pydantic import BaseModel
 
+from app.schemas.skincare_habit import SkincareEntryHabitResponse
+
 
 class SkincareHistoryItem(BaseModel):
     date: date
@@ -10,14 +12,7 @@ class SkincareHistoryItem(BaseModel):
     total: int
     progress: int
 
-    face_wash: bool
-    vitamin_c: bool
-    moisturizer: bool
-    sunscreen: bool
-    lipcare: bool
-
-    cleanser: bool
-    evening_moisturizer: bool
+    habits: list[SkincareEntryHabitResponse]
 
     model_config = {
         "from_attributes": True
