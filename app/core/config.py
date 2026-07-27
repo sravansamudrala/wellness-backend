@@ -31,11 +31,13 @@ class Settings(BaseSettings):
     # slowapi rate-limit string for /register and /login, e.g. "5/minute".
     auth_rate_limit: str = "10/minute"
 
-    # Gmail SMTP account used to send password-reset emails (no domain
-    # available for a provider like Resend/SendGrid, so we send via a
-    # dedicated Gmail account + App Password instead).
-    gmail_address: str = ""
-    gmail_app_password: str = ""
+    # SendGrid (HTTP API) used to send password-reset emails. Render blocks
+    # outbound SMTP entirely, so a plain SMTP client (e.g. Gmail SMTP) can't
+    # work there — SendGrid's API is a normal HTTPS call instead. `mail_from`
+    # must be verified as a Single Sender in the SendGrid dashboard (no
+    # domain needed) before sends will succeed.
+    sendgrid_api_key: str = ""
+    mail_from: str = ""
 
     # Frontend origin used to build the password-reset link in the email.
     frontend_url: str = "http://localhost:5173"
