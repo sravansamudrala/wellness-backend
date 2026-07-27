@@ -3,6 +3,8 @@
 Kept dependency-free of FastAPI so it's easy to unit-test and reuse.
 """
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -64,3 +66,24 @@ def decode_token(token: str) -> Optional[str]:
         return payload.get("sub")
     except jwt.PyJWTError:
         return None
+
+
+# ----- Password reset tokens -----
+
+def generate_reset_token() -> str:
+    """A high-entropy, URL-safe raw token to email to the user.
+
+    This is emailed as-is (in the reset link) and never stored raw — only its
+    hash (see hash_reset_token) is kept in the DB.
+    """
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(raw_token: str) -> str:
+    """SHA-256 hex digest of a raw reset token, for DB storage/lookup.
+
+    Unlike bcrypt for passwords, a fast deterministic hash is fine here: the
+    token is already 256 bits of secure randomness, so it doesn't need a slow
+    work factor — we just need a stable digest to look up by.
+    """
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()

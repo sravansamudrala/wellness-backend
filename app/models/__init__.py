@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.password_reset_token import PasswordResetToken
 from app.models.skincare import SkincareEntry, SkincareHabit, SkincareEntryHabit
 from app.models.reminder_settings import ReminderSettings
 from app.models.push_subscription import PushSubscription
