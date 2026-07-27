@@ -1,10 +1,12 @@
 from datetime import date, timedelta
+from typing import Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.skincare import SkincareEntry
+from app.models.skincare import SkincareEntry, SkincareEntryHabit, SkincareHabit
 from app.schemas.skincare import SkincareUpdateRequest
+from app.schemas.skincare_habit import SkincareHabitUpsertItem
 
 
 def _streak_message(current_streak: int, best_streak: int, total_days: int) -> str:
@@ -37,10 +39,10 @@ def _streak_message(current_streak: int, best_streak: int, total_days: int) -> s
 class SkincareService:
 
     @staticmethod
-    def get_today(db: Session, user_id: UUID) -> SkincareEntry:
+    def _get_or_create_today_entry(db: Session, user_id: UUID) -> SkincareEntry:
         today = date.today()
 
-        skincare = (
+        entry = (
             db.query(SkincareEntry)
             .filter(
                 SkincareEntry.user_id == user_id,
@@ -49,39 +51,145 @@ class SkincareService:
             .first()
         )
 
-        if skincare:
-            return skincare
+        if entry is None:
+            entry = SkincareEntry(user_id=user_id, date=today)
+            db.add(entry)
+            db.commit()
+            db.refresh(entry)
 
-        skincare = SkincareEntry(user_id=user_id, date=today)
+        SkincareService._sync_entry_habits(db, user_id, entry)
 
-        db.add(skincare)
+        return entry
+
+    @staticmethod
+    def _sync_entry_habits(db: Session, user_id: UUID, entry: SkincareEntry) -> None:
+        """Ensure today's entry has an entry_habit row for every active habit.
+
+        Handles a habit created mid-day — never touches rows for habits
+        that are no longer active or that already have a row.
+        """
+        active_ids = {
+            row[0]
+            for row in db.query(SkincareHabit.id).filter(
+                SkincareHabit.user_id == user_id,
+                SkincareHabit.is_active.is_(True),
+            )
+        }
+
+        existing_ids = {
+            row[0]
+            for row in db.query(SkincareEntryHabit.habit_id).filter(
+                SkincareEntryHabit.entry_id == entry.id
+            )
+        }
+
+        missing = active_ids - existing_ids
+
+        if not missing:
+            return
+
+        for habit_id in missing:
+            db.add(SkincareEntryHabit(entry_id=entry.id, habit_id=habit_id, completed=False))
+
         db.commit()
-        db.refresh(skincare)
 
-        return skincare
+    @staticmethod
+    def _habit_rows_for_entry(db: Session, entry_id: UUID) -> list[dict]:
+        rows = (
+            db.query(SkincareEntryHabit.habit_id, SkincareEntryHabit.completed, SkincareHabit.name)
+            .join(SkincareHabit, SkincareHabit.id == SkincareEntryHabit.habit_id)
+            .filter(
+                SkincareEntryHabit.entry_id == entry_id,
+                SkincareHabit.is_active.is_(True),
+            )
+            .order_by(SkincareHabit.sort_order.asc(), SkincareHabit.created_at.asc())
+            .all()
+        )
+
+        return [
+            {"habit_id": habit_id, "name": name, "completed": completed}
+            for habit_id, completed, name in rows
+        ]
+
+    @staticmethod
+    def _habit_rows_by_entry(db: Session, user_id: UUID) -> dict[UUID, list[dict]]:
+        """One grouped query for every entry_habit row across a user's history.
+
+        Avoids an N+1 join per entry in get_history/get_stats, which iterate
+        every historical entry with no pagination.
+        """
+        rows = (
+            db.query(
+                SkincareEntryHabit.entry_id,
+                SkincareEntryHabit.habit_id,
+                SkincareEntryHabit.completed,
+                SkincareHabit.name,
+            )
+            .join(SkincareEntry, SkincareEntry.id == SkincareEntryHabit.entry_id)
+            .join(SkincareHabit, SkincareHabit.id == SkincareEntryHabit.habit_id)
+            .filter(SkincareEntry.user_id == user_id)
+            .all()
+        )
+
+        by_entry: dict[UUID, list[dict]] = {}
+        for entry_id, habit_id, completed, name in rows:
+            by_entry.setdefault(entry_id, []).append(
+                {"habit_id": habit_id, "name": name, "completed": completed}
+            )
+        return by_entry
+
+    @staticmethod
+    def _serialize_entry(db: Session, entry: SkincareEntry) -> dict:
+        return {
+            "id": entry.id,
+            "date": entry.date,
+            "created_at": entry.created_at,
+            "updated_at": entry.updated_at,
+            "habits": SkincareService._habit_rows_for_entry(db, entry.id),
+        }
+
+    @staticmethod
+    def get_today(db: Session, user_id: UUID) -> dict:
+        entry = SkincareService._get_or_create_today_entry(db, user_id)
+        return SkincareService._serialize_entry(db, entry)
 
     @staticmethod
     def update_today(
         db: Session, user_id: UUID, request: SkincareUpdateRequest
-    ) -> SkincareEntry:
+    ) -> Tuple[Optional[dict], Optional[str]]:
 
-        skincare = SkincareService.get_today(db, user_id)
+        entry = SkincareService._get_or_create_today_entry(db, user_id)
 
-        skincare.face_wash = request.face_wash
-        skincare.vitamin_c = request.vitamin_c
-        skincare.moisturizer = request.moisturizer
-        skincare.sunscreen = request.sunscreen
-        skincare.cleanser = request.cleanser
-        skincare.evening_moisturizer = request.evening_moisturizer
-        skincare.lipcare = request.lipcare
+        # Only currently-active habits count for today's set — a habit
+        # disabled after its entry_habit row was created must disappear from
+        # today immediately, same as one that was never synced in.
+        entry_habits = (
+            db.query(SkincareEntryHabit)
+            .join(SkincareHabit, SkincareHabit.id == SkincareEntryHabit.habit_id)
+            .filter(
+                SkincareEntryHabit.entry_id == entry.id,
+                SkincareHabit.is_active.is_(True),
+            )
+            .all()
+        )
+
+        active_ids = {eh.habit_id for eh in entry_habits}
+        payload_ids = {item.habit_id for item in request.habits}
+
+        if payload_ids != active_ids:
+            return None, "Payload must include exactly today's active habits — none missing, none extra."
+
+        completed_by_id = {item.habit_id: item.completed for item in request.habits}
+
+        for entry_habit in entry_habits:
+            entry_habit.completed = completed_by_id[entry_habit.habit_id]
 
         db.commit()
-        db.refresh(skincare)
 
-        return skincare
+        return SkincareService._serialize_entry(db, entry), None
 
     @staticmethod
-    def get_history(db: Session, user_id: UUID):
+    def get_history(db: Session, user_id: UUID) -> list[dict]:
 
         entries = (
             db.query(SkincareEntry)
@@ -90,47 +198,30 @@ class SkincareService:
             .all()
         )
 
+        habits_by_entry = SkincareService._habit_rows_by_entry(db, user_id)
+
         history = []
 
         for entry in entries:
-
-            completed = sum([
-                entry.face_wash,
-                entry.vitamin_c,
-                entry.moisturizer,
-                entry.sunscreen,
-                entry.lipcare,
-                entry.cleanser,
-                entry.evening_moisturizer,
-            ])
-
-            total = 7
-
-            progress = round((completed / total) * 100)
+            habits = habits_by_entry.get(entry.id, [])
+            total = len(habits)
+            completed = sum(1 for h in habits if h["completed"])
+            progress = round((completed / total) * 100) if total else 0
 
             history.append(
                 {
                     "date": entry.date,
-
                     "completed": completed,
                     "total": total,
                     "progress": progress,
-
-                    "face_wash": entry.face_wash,
-                    "vitamin_c": entry.vitamin_c,
-                    "moisturizer": entry.moisturizer,
-                    "sunscreen": entry.sunscreen,
-                    "lipcare": entry.lipcare,
-
-                    "cleanser": entry.cleanser,
-                    "evening_moisturizer": entry.evening_moisturizer,
+                    "habits": habits,
                 }
             )
 
         return history
 
     @staticmethod
-    def get_stats(db: Session, user_id: UUID):
+    def get_stats(db: Session, user_id: UUID) -> dict:
 
         entries = (
             db.query(SkincareEntry)
@@ -150,24 +241,20 @@ class SkincareService:
                 "message": _streak_message(0, 0, 0),
             }
 
+        habits_by_entry = SkincareService._habit_rows_by_entry(db, user_id)
+
         total_progress = 0
         perfect_dates = set()
 
         for entry in entries:
+            habits = habits_by_entry.get(entry.id, [])
+            total = len(habits)
+            completed = sum(1 for h in habits if h["completed"])
 
-            completed = sum([
-                entry.face_wash,
-                entry.vitamin_c,
-                entry.moisturizer,
-                entry.sunscreen,
-                entry.lipcare,
-                entry.cleanser,
-                entry.evening_moisturizer,
-            ])
+            total_progress += round((completed / total) * 100) if total else 0
 
-            total_progress += round((completed / 7) * 100)
-
-            if completed == 7:
+            # A day with zero configured habits is never a "perfect" day.
+            if total > 0 and completed == total:
                 perfect_dates.add(entry.date)
 
         # Best streak: longest run of consecutive *calendar days* that were
@@ -208,3 +295,59 @@ class SkincareService:
             "average_completion": round(total_progress / total_days),
             "message": _streak_message(current_streak, best_streak, total_days),
         }
+
+    @staticmethod
+    def list_habits(db: Session, user_id: UUID) -> list[SkincareHabit]:
+        return (
+            db.query(SkincareHabit)
+            .filter(SkincareHabit.user_id == user_id)
+            .order_by(SkincareHabit.sort_order.asc(), SkincareHabit.created_at.asc())
+            .all()
+        )
+
+    @staticmethod
+    def upsert_habits(
+        db: Session, user_id: UUID, items: list[SkincareHabitUpsertItem]
+    ) -> Tuple[Optional[list[SkincareHabit]], Optional[str]]:
+
+        existing = (
+            db.query(SkincareHabit)
+            .filter(SkincareHabit.user_id == user_id)
+            .all()
+        )
+        existing_by_id = {habit.id: habit for habit in existing}
+
+        for item in items:
+            if item.id is not None and item.id not in existing_by_id:
+                return None, "not_found"
+
+        payload_names = [item.name for item in items]
+        if len(payload_names) != len(set(payload_names)):
+            return None, "Duplicate habit name in request."
+
+        # Names stay reserved even once disabled, so any existing habit not
+        # included in this payload still blocks reuse of its name.
+        payload_ids = {item.id for item in items if item.id is not None}
+        untouched_names = {habit.name for habit in existing if habit.id not in payload_ids}
+        if untouched_names & set(payload_names):
+            return None, "Habit name already in use."
+
+        for item in items:
+            if item.id is None:
+                db.add(
+                    SkincareHabit(
+                        user_id=user_id,
+                        name=item.name,
+                        is_active=item.is_active,
+                        sort_order=item.sort_order,
+                    )
+                )
+            else:
+                habit = existing_by_id[item.id]
+                habit.name = item.name
+                habit.is_active = item.is_active
+                habit.sort_order = item.sort_order
+
+        db.commit()
+
+        return SkincareService.list_habits(db, user_id), None

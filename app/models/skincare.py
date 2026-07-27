@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,3 +53,53 @@ class SkincareEntry(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
+
+
+class SkincareHabit(Base):
+    __tablename__ = "skincare_habits"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    name: Mapped[str] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+    )
+
+    # Names are reserved per user forever, even once disabled — see
+    # CLAUDE.md's skincare habits section for why this isn't a partial index.
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_skincare_habits_user_name"),
+    )
+
+
+class SkincareEntryHabit(Base):
+    __tablename__ = "skincare_entry_habits"
+
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skincare_entries.id"),
+        primary_key=True,
+    )
+
+    habit_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skincare_habits.id"),
+        primary_key=True,
+    )
+
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)
