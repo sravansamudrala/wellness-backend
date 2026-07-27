@@ -7,8 +7,11 @@ from app.core.security import create_access_token
 from app.database.session import SessionLocal
 from app.models.user import User
 from app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
+    MessageResponse,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserResponse,
 )
@@ -61,6 +64,44 @@ def login(payload: LoginRequest, request: Request):
             )
 
         return TokenResponse(access_token=create_access_token(user.id))
+    finally:
+        db.close()
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+@limiter.limit(settings.password_reset_rate_limit)
+def forgot_password(payload: ForgotPasswordRequest, request: Request):
+    db: Session = SessionLocal()
+
+    try:
+        AuthService.request_password_reset(db, payload.email)
+        # Always the same response — existence of the email is never revealed.
+        return MessageResponse(
+            message="If that email is registered, we've sent a password reset link."
+        )
+    finally:
+        db.close()
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+@limiter.limit(settings.auth_rate_limit)
+def reset_password(payload: ResetPasswordRequest, request: Request):
+    db: Session = SessionLocal()
+
+    try:
+        if len(payload.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters.",
+            )
+
+        ok = AuthService.reset_password(db, payload.token, payload.new_password)
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This reset link is invalid or has expired.",
+            )
+        return MessageResponse(message="Password updated. You can log in now.")
     finally:
         db.close()
 

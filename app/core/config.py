@@ -31,6 +31,22 @@ class Settings(BaseSettings):
     # slowapi rate-limit string for /register and /login, e.g. "5/minute".
     auth_rate_limit: str = "10/minute"
 
+    # Gmail SMTP account used to send password-reset emails (no domain
+    # available for a provider like Resend/SendGrid, so we send via a
+    # dedicated Gmail account + App Password instead).
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+
+    # Frontend origin used to build the password-reset link in the email.
+    frontend_url: str = "http://localhost:5173"
+
+    # How long a password-reset token stays valid after being issued.
+    password_reset_token_expire_minutes: int = 45
+
+    # slowapi rate-limit string for /forgot-password — stricter than
+    # auth_rate_limit since this endpoint can be used to spam a stranger's inbox.
+    password_reset_rate_limit: str = "3/hour"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
