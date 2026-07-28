@@ -12,11 +12,16 @@ from app.api.auth import router as auth_router
 from app.api.water import router as water_router
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.core.logging import setup_logging
 
 setup_logging()
-app = FastAPI()
+app = FastAPI(
+    docs_url="/docs" if settings.enable_api_docs else None,
+    redoc_url="/redoc" if settings.enable_api_docs else None,
+    openapi_url="/openapi.json" if settings.enable_api_docs else None,
+)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
