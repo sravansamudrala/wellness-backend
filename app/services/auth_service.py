@@ -106,6 +106,10 @@ class AuthService:
             return False
 
         user.hashed_password = hash_password(new_password)
+        # Invalidates every token minted before this point — see the `ver`
+        # claim in security.create_access_token and the comparison in
+        # api.deps.get_current_user.
+        user.token_version += 1
         reset_token.used_at = datetime.utcnow()
         db.commit()
         return True

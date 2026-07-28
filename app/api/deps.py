@@ -8,7 +8,9 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.core.security import decode_token
+from app.core.security import decode_token_claims
+from app.database.session import SessionLocal
+from app.models.user import User
 
 # Extracts the "Authorization: Bearer <token>" header. auto_error=False means
 # it returns None (instead of raising its own 403) when the header is missing,
@@ -32,12 +34,31 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_id = decode_token(credentials.credentials)
-    if user_id is None:
+    payload = decode_token_claims(credentials.credentials)
+    if payload is None or "sub" not in payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return UUID(user_id)
+    user_id = UUID(payload["sub"])
+    # Missing `ver` means a token minted before this feature shipped — treat
+    # it as version 0 so existing sessions survive the deploy; they're only
+    # invalidated the next time this user actually resets their password.
+    token_version = payload.get("ver", 0)
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+    finally:
+        db.close()
+
+    if user is None or user.token_version != token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user_id

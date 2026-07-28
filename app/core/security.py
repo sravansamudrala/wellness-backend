@@ -44,33 +44,53 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ----- JWTs -----
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, token_version: int) -> str:
     """Build a signed JWT whose `sub` (subject) claim is the user id.
 
     `exp` is a standard claim PyJWT understands: once past it, `decode` raises
     ExpiredSignatureError and the token is rejected.
+
+    `ver` is `token_version` from the users row at the moment this token was
+    minted — `get_current_user` compares it against the user's *current*
+    token_version on every request. `AuthService.reset_password` bumps that
+    column, which makes every token minted before the reset carry a stale
+    `ver` and fail that comparison — this is how a stolen session gets
+    invalidated even though JWTs are otherwise stateless.
     """
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
-    payload = {"sub": str(user_id), "exp": expire}
+    payload = {"sub": str(user_id), "ver": token_version, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def decode_token(token: str) -> Optional[str]:
-    """Verify a JWT's signature + expiry and return its `sub` (user id).
+def _decode_payload(token: str) -> Optional[dict]:
+    """Verify a JWT's signature + expiry and return its full payload.
 
-    Returns None on any problem (bad signature, expired, malformed) — the
-    caller turns that into a 401. We never trust the payload without the
-    signature check that `jwt.decode` performs here using our secret.
+    Returns None on any problem (bad signature, expired, malformed) — callers
+    turn that into a 401. We never trust the payload without the signature
+    check that `jwt.decode` performs here using our secret.
     """
     try:
-        payload = jwt.decode(
+        return jwt.decode(
             token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
         )
-        return payload.get("sub")
     except jwt.PyJWTError:
         return None
+
+
+def decode_token(token: str) -> Optional[str]:
+    """Verify a JWT and return just its `sub` (user id) — kept for callers
+    that only need the user id, not the full claim set."""
+    payload = _decode_payload(token)
+    return payload.get("sub") if payload else None
+
+
+def decode_token_claims(token: str) -> Optional[dict]:
+    """Verify a JWT and return its full claim set (`sub` + `ver`, etc.) — for
+    callers (namely `get_current_user`) that need more than just the user id.
+    """
+    return _decode_payload(token)
 
 
 # ----- Password reset tokens -----
