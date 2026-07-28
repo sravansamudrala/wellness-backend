@@ -43,7 +43,9 @@ def register(payload: RegisterRequest, request: Request):
             )
 
         # Registration logs you straight in by returning a token.
-        return TokenResponse(access_token=create_access_token(user.id))
+        return TokenResponse(
+            access_token=create_access_token(user.id, user.token_version)
+        )
     finally:
         db.close()
 
@@ -63,7 +65,9 @@ def login(payload: LoginRequest, request: Request):
                 detail="Incorrect email or password.",
             )
 
-        return TokenResponse(access_token=create_access_token(user.id))
+        return TokenResponse(
+            access_token=create_access_token(user.id, user.token_version)
+        )
     finally:
         db.close()
 

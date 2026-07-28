@@ -2,11 +2,14 @@ import secrets
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
+import jwt
 import pytest
 
+from app.core.config import settings
 from app.core.security import hash_reset_token
 from app.database.session import SessionLocal
 from app.models.password_reset_token import PasswordResetToken
+from app.models.user import User
 from app.services import auth_service
 
 
@@ -172,3 +175,86 @@ def test_reset_password_garbage_token_rejected(client):
     )
 
     assert response.status_code == 400
+
+
+def test_old_session_invalidated_after_password_reset(client, stub_email):
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "reset-user7@example.com", "password": "oldpassword1"},
+    )
+    old_token = register_response.json()["access_token"]
+
+    # The old token works before the reset.
+    pre_reset = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {old_token}"}
+    )
+    assert pre_reset.status_code == 200
+
+    client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "reset-user7@example.com"},
+    )
+    reset_token = _extract_token(stub_email[0][1])
+    client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": reset_token, "new_password": "newpassword1"},
+    )
+
+    post_reset = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {old_token}"}
+    )
+    assert post_reset.status_code == 401
+
+
+def test_fresh_login_works_after_password_reset(client, stub_email):
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "reset-user8@example.com", "password": "oldpassword1"},
+    )
+    client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "reset-user8@example.com"},
+    )
+    reset_token = _extract_token(stub_email[0][1])
+    client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": reset_token, "new_password": "newpassword1"},
+    )
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset-user8@example.com", "password": "newpassword1"},
+    )
+    new_token = login_response.json()["access_token"]
+
+    me_response = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {new_token}"}
+    )
+    assert me_response.status_code == 200
+
+
+def test_token_missing_ver_claim_still_authenticates(client):
+    """Backward-compat: tokens minted before this feature shipped have no
+    `ver` claim at all. get_current_user must default that to 0 and still
+    authenticate a freshly registered (token_version=0) user."""
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "reset-user9@example.com", "password": "supersecret123"},
+    )
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "reset-user9@example.com").first()
+        assert user.token_version == 0
+        legacy_token = jwt.encode(
+            {"sub": str(user.id), "exp": datetime.utcnow() + timedelta(minutes=5)},
+            settings.jwt_secret,
+            algorithm=settings.jwt_algorithm,
+        )
+    finally:
+        db.close()
+
+    response = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {legacy_token}"}
+    )
+    assert response.status_code == 200

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,3 +32,8 @@ class User(Base):
         DateTime,
         default=datetime.utcnow,
     )
+
+    # Bumped by AuthService.reset_password to invalidate every token issued
+    # before the reset — see the `ver` claim in security.create_access_token
+    # and the comparison in api.deps.get_current_user.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
