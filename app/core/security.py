@@ -22,9 +22,14 @@ def hash_password(password: str) -> str:
     `gensalt()` generates a fresh random salt each call, so the same password
     hashes differently every time. The salt is stored *inside* the returned
     hash string, so `verify_password` can read it back out.
+
+    rounds=10 (default would be 12): bcrypt's cost factor is exponential —
+    each +1 round roughly doubles the CPU time. 12 rounds takes ~2.6s on
+    Render's weak free-tier CPU (measured), which made every login/register
+    painfully slow. 10 is still within OWASP's recommended floor.
     """
     # bcrypt works on bytes, not str, so we encode/decode around it.
-    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10))
     return hashed.decode("utf-8")
 
 
