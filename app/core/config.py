@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # auth_rate_limit since this endpoint can be used to spam a stranger's inbox.
     password_reset_rate_limit: str = "3/hour"
 
+    # Swagger UI (/docs) and ReDoc (/redoc) expose the full API schema to
+    # anyone who requests it. Default on for local dev convenience — set
+    # ENABLE_API_DOCS=false in Render's production env to hide them.
+    enable_api_docs: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
