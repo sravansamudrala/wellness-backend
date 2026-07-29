@@ -9,3 +9,4 @@ __pycache__/
 htmlcov/*.code-workspace
 TODO.md
 docs/python-learning-doc.md
+docs/infrastructure.md
