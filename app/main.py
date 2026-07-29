@@ -40,7 +40,13 @@ app.add_middleware(
     # security boundary. Also match any localhost port — Vite auto-increments
     # (5173 -> 5174 -> ...) whenever the default port is already taken, so a
     # fixed allow_origins entry breaks the moment that happens.
-    allow_origin_regex=r"https://wellness-tracker.*\.vercel\.app|http://localhost:\d+",
+    #
+    # Two project-name prefixes are matched because the Vercel project was
+    # renamed (aiwellnesstracker) but the original wellness-tracker*.vercel.app
+    # domain is still a live alias to the same deployment — found 2026-07-29
+    # when login broke with a CORS error because the old regex only matched
+    # the pre-rename prefix.
+    allow_origin_regex=r"https://(wellness-tracker|aiwellnesstracker).*\.vercel\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
