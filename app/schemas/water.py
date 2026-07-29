@@ -16,6 +16,10 @@ class WaterEntryResponse(BaseModel):
     }
 
 
+class WaterTodayResponse(WaterEntryResponse):
+    message: str
+
+
 class AddWaterRequest(BaseModel):
     amount_ml: int = Field(gt=0, description="Amount of water in milliliters. Must be greater than 0.")
 

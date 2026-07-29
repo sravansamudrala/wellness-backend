@@ -24,6 +24,8 @@ import pytest
 from fastapi.testclient import TestClient
 from app.core.rate_limit import limiter
 limiter.enabled = False
+from app.core.config import settings
+settings.groq_api_key = ""  # never hit the real Groq API from the test suite
 from app.main import app
 
 

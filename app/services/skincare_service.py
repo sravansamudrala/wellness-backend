@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.skincare import SkincareEntry, SkincareEntryHabit, SkincareHabit
 from app.schemas.skincare import SkincareUpdateRequest
 from app.schemas.skincare_habit import SkincareHabitUpsertItem
+from app.services.ai_message_service import generate_streak_message
 
 
 def _streak_message(current_streak: int, best_streak: int, total_days: int) -> str:
@@ -288,12 +289,16 @@ class SkincareService:
             current_streak += 1
             cursor = cursor - timedelta(days=1)
 
+        fallback_message = _streak_message(current_streak, best_streak, total_days)
+
         return {
             "current_streak": current_streak,
             "best_streak": best_streak,
             "total_days": total_days,
             "average_completion": round(total_progress / total_days),
-            "message": _streak_message(current_streak, best_streak, total_days),
+            "message": generate_streak_message(
+                "skincare", current_streak, best_streak, total_days, fallback=fallback_message
+            ),
         }
 
     @staticmethod

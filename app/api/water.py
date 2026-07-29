@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database.session import SessionLocal
-from app.schemas.water import AddWaterRequest, WaterEntryResponse, WaterSettingsResponse, WaterSettingsUpdateRequest, WaterStatsResponse
+from app.schemas.water import AddWaterRequest, WaterEntryResponse, WaterSettingsResponse, WaterSettingsUpdateRequest, WaterStatsResponse, WaterTodayResponse
 from app.services.water_service import WaterService
 
 
@@ -16,12 +16,12 @@ router = APIRouter(
 )
 
 
-@router.get("/today", response_model=WaterEntryResponse)
+@router.get("/today", response_model=WaterTodayResponse)
 def get_today(user_id: UUID = Depends(get_current_user)):
     db: Session = SessionLocal()
 
     try:
-        return WaterService.get_today(db, user_id)
+        return WaterService.get_today_with_message(db, user_id)
     finally:
         db.close()
 

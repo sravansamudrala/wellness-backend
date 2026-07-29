@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.water import WaterEntry, WaterSettings
 from app.schemas.water import AddWaterRequest, WaterSettingsUpdateRequest
+from app.services.ai_message_service import generate_hydration_message, generate_streak_message
 
 
 def _water_message(current_streak: int, best_streak: int, total_days: int) -> str:
@@ -20,6 +21,19 @@ def _water_message(current_streak: int, best_streak: int, total_days: int) -> st
         return f"{current_streak}-day hydration streak. New personal best."
 
     return f"{current_streak} days of hydration. Keep going."
+
+
+def _hydration_message(amount_ml: int, daily_goal_ml: int) -> str:
+    if amount_ml <= 0:
+        return "You haven't logged any water yet today — start hydrating!"
+
+    percentage = round((amount_ml / daily_goal_ml) * 100)
+
+    if percentage >= 100:
+        return "Goal hit for today — great job staying hydrated!"
+    if percentage >= 50:
+        return "You're over halfway to today's hydration goal."
+    return "Good start — keep drinking water throughout the day."
 
 
 class WaterService:
@@ -47,6 +61,25 @@ class WaterService:
         db.refresh(entry)
 
         return entry
+
+    @staticmethod
+    def get_today_with_message(db: Session, user_id: UUID) -> dict:
+        entry = WaterService.get_today(db, user_id)
+        settings = WaterService.get_settings(db, user_id)
+
+        fallback_message = _hydration_message(entry.amount_ml, settings.daily_goal_ml)
+
+        percentage = round((entry.amount_ml / settings.daily_goal_ml) * 100)
+        percentage_bucket = min(100, round(percentage / 10) * 10)
+
+        return {
+            "id": entry.id,
+            "date": entry.date,
+            "amount_ml": entry.amount_ml,
+            "created_at": entry.created_at,
+            "updated_at": entry.updated_at,
+            "message": generate_hydration_message(percentage_bucket, fallback=fallback_message),
+        }
 
     @staticmethod
     def add_water(
@@ -173,10 +206,14 @@ class WaterService:
             current_streak += 1
             cursor = cursor - timedelta(days=1)
 
+        fallback_message = _water_message(current_streak, best_streak, total_days)
+
         return {
             "current_streak": current_streak,
             "best_streak": best_streak,
             "total_days": total_days,
             "average_completion": round(total_progress / total_days),
-            "message": _water_message(current_streak, best_streak, total_days),
+            "message": generate_streak_message(
+                "water", current_streak, best_streak, total_days, fallback=fallback_message
+            ),
         }
