@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # ENABLE_API_DOCS=false in Render's production env to hide them.
     enable_api_docs: bool = True
 
+    # Groq's free-tier chat-completions API powers AI-generated encouragement
+    # messages (skincare/water streaks, water hydration level). No key set →
+    # falls back to the old rule-based messages, app still works either way.
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
