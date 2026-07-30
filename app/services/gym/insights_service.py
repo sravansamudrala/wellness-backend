@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.gym.exercise import Exercise, MuscleGroup
 from app.models.gym.session import SessionExercise, SessionSet, WorkoutSession
+from app.services.ai_message_service import generate_gym_coach_message
 
 
 def _workout_date(session: WorkoutSession) -> date:
@@ -88,6 +89,27 @@ class InsightsService:
         last_workout_date = workout_dates[-1]
         days_since_last = (today - last_workout_date).days
 
+        fallback_message = _stats_message(current_streak, total_workouts, days_since_last)
+
+        # Recovery reflects which muscle groups were trained, not weights —
+        # volume/records need weight_kg, which freestyle quick-log sessions
+        # don't carry, so they'd be sparse/empty for real usage here.
+        recovery = InsightsService.get_recovery(db, user_id)
+        trained_this_week = [
+            r["muscle_group_name"]
+            for r in sorted(
+                (r for r in recovery if r["days_since"] is not None and r["days_since"] <= 7),
+                key=lambda r: r["days_since"],
+            )
+        ]
+        overdue = sorted(
+            (r for r in recovery if r["days_since"] is not None and r["days_since"] > 6),
+            key=lambda r: r["days_since"],
+            reverse=True,
+        )
+        stalest_group = overdue[0]["muscle_group_name"] if overdue else None
+        stalest_days = overdue[0]["days_since"] if overdue else None
+
         return {
             "total_workouts": total_workouts,
             "current_streak": current_streak,
@@ -95,7 +117,15 @@ class InsightsService:
             "this_week": this_week,
             "last_workout_date": last_workout_date,
             "days_since_last": days_since_last,
-            "message": _stats_message(current_streak, total_workouts, days_since_last),
+            "message": generate_gym_coach_message(
+                current_streak,
+                this_week,
+                total_workouts,
+                trained_this_week,
+                stalest_group,
+                stalest_days,
+                fallback_message,
+            ),
         }
 
     @staticmethod
