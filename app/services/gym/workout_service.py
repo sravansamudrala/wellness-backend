@@ -1,9 +1,9 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.timezone import local_day_bounds_utc, local_today
 from app.models.gym.exercise import Exercise, MuscleGroup
 from app.models.gym.session import SessionExercise, SessionSet, WorkoutSession
 from app.models.gym.state import GymState
@@ -156,13 +156,15 @@ class WorkoutService:
         """Freestyle 'Log Workout'. Same-day saves MERGE into one workout: the
         exercises are appended (deduped) to today's session, which is then
         (re)named from the muscle groups trained. Weightless (one done set each)."""
-        today = date.today()
+        today = local_today()
+        start_utc, end_utc = local_day_bounds_utc(today)
         session = (
             db.query(WorkoutSession)
             .filter(
                 WorkoutSession.user_id == user_id,
                 WorkoutSession.status == "completed",
-                func.date(WorkoutSession.completed_at) == today,
+                WorkoutSession.completed_at >= start_utc,
+                WorkoutSession.completed_at < end_utc,
             )
             .order_by(WorkoutSession.started_at.asc())
             .first()

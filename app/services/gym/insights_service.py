@@ -3,14 +3,16 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.timezone import local_today, to_local_date
 from app.models.gym.exercise import Exercise, MuscleGroup
 from app.models.gym.session import SessionExercise, SessionSet, WorkoutSession
 from app.services.ai_message_service import generate_gym_coach_message
+from app.services.gym.workout_service import WorkoutService
 
 
 def _workout_date(session: WorkoutSession) -> date:
     dt = session.completed_at or session.started_at
-    return dt.date()
+    return to_local_date(dt)
 
 
 def _stats_message(current_streak: int, total_workouts: int, days_since_last) -> str:
@@ -60,7 +62,7 @@ class InsightsService:
 
         workout_dates = sorted({_workout_date(s) for s in sessions})
         date_set = set(workout_dates)
-        today = date.today()
+        today = local_today()
 
         # Best streak: longest run of consecutive calendar days with a workout.
         best_streak = 0
@@ -83,8 +85,10 @@ class InsightsService:
             current_streak += 1
             cursor = cursor - timedelta(days=1)
 
-        week_ago = today - timedelta(days=6)
-        this_week = sum(1 for d in workout_dates if d >= week_ago)
+        # Monday-start calendar week — kept identical between this_week and
+        # trained_this_week below, not a rolling 7-day window.
+        week_start = today - timedelta(days=today.weekday())
+        this_week = sum(1 for d in workout_dates if d >= week_start)
 
         last_workout_date = workout_dates[-1]
         days_since_last = (today - last_workout_date).days
@@ -98,12 +102,24 @@ class InsightsService:
         trained_this_week = [
             r["muscle_group_name"]
             for r in sorted(
-                (r for r in recovery if r["days_since"] is not None and r["days_since"] <= 7),
+                (r for r in recovery if r["last_trained"] is not None and r["last_trained"] >= week_start),
                 key=lambda r: r["days_since"],
             )
         ]
+        # "Needs attention" only makes sense for muscle groups on the user's
+        # rotation — Cardio/Core are deliberately excluded there too (see
+        # WorkoutService.DEFAULT_ROTATION_ORDER): they're logged alongside any
+        # day rather than following a recovery cycle, so flagging them as
+        # "overdue" would be misleading.
+        rotation = set(WorkoutService.get_state(db, user_id).rotation_order or [])
         overdue = sorted(
-            (r for r in recovery if r["days_since"] is not None and r["days_since"] > 6),
+            (
+                r
+                for r in recovery
+                if r["days_since"] is not None
+                and r["days_since"] > 6
+                and r["muscle_group_name"] in rotation
+            ),
             key=lambda r: r["days_since"],
             reverse=True,
         )
@@ -124,6 +140,7 @@ class InsightsService:
                 trained_this_week,
                 stalest_group,
                 stalest_days,
+                [r["muscle_group_name"] for r in recovery],
                 fallback_message,
             ),
         }
@@ -151,7 +168,7 @@ class InsightsService:
     def get_volume(db: Session, user_id: UUID, range: str = "all") -> dict:
         sessions = InsightsService._completed_sessions(db, user_id)
 
-        today = date.today()
+        today = local_today()
         if range == "week":
             cutoff = today - timedelta(days=6)
         elif range == "month":
@@ -248,7 +265,7 @@ class InsightsService:
         if not muscle_groups:
             return []
 
-        today = date.today()
+        today = local_today()
 
         # Map exercise_id -> primary_muscle_group_id (only exercises that have one).
         exercises = (

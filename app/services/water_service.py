@@ -1,8 +1,9 @@
-from datetime import date, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.timezone import local_today
 from app.models.water import WaterEntry, WaterSettings
 from app.schemas.water import AddWaterRequest, WaterSettingsUpdateRequest
 from app.services.ai_message_service import generate_hydration_message, generate_streak_message
@@ -40,7 +41,7 @@ class WaterService:
 
     @staticmethod
     def get_today(db: Session, user_id: UUID) -> WaterEntry:
-        today = date.today()
+        today = local_today()
 
         entry = (
             db.query(WaterEntry)
@@ -197,7 +198,7 @@ class WaterService:
                 previous_date = None
 
         current_streak = 0
-        cursor = date.today()
+        cursor = local_today()
 
         if cursor not in completed_dates:
             cursor = cursor - timedelta(days=1)

@@ -47,6 +47,25 @@ def test_list_habits_starts_empty(client, auth_headers):
     assert response.json() == []
 
 
+def test_get_today_uses_local_calendar_day_not_utc_previous_day(client, auth_headers, monkeypatch):
+    """00:30 in Asia/Kolkata is 19:00 UTC the PREVIOUS day — the entry must be
+    dated by the local calendar day, not naive UTC. Expected date is derived
+    from the fixed instant itself, not hardcoded, so this actually fails if
+    the fix regresses back to naive date.today()."""
+    from datetime import datetime, timezone as dt_timezone
+    from zoneinfo import ZoneInfo
+
+    fixed_local = datetime(2026, 1, 14, 19, 0, tzinfo=dt_timezone.utc).astimezone(
+        ZoneInfo("Asia/Kolkata")
+    )
+    monkeypatch.setattr("app.core.timezone.local_now", lambda: fixed_local)
+
+    response = client.get("/api/v1/skincare/today", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["date"] == fixed_local.date().isoformat()
+
+
 def test_upsert_habits_creates_new_habits(client, auth_headers):
     habits = _create_habits(client, auth_headers, ["Face Wash", "Sunscreen"])
 
