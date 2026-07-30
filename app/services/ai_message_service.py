@@ -67,6 +67,41 @@ def generate_streak_message(
     return generate_message(cache_key, prompt, fallback)
 
 
+def generate_gym_coach_message(
+    current_streak: int,
+    this_week: int,
+    total_workouts: int,
+    trained_this_week: list,
+    stalest_group: str | None,
+    stalest_days: int | None,
+    fallback: str,
+) -> str:
+    if total_workouts == 0:
+        return fallback
+
+    facts = [
+        f"Current streak: {current_streak} days",
+        f"Workouts this week: {this_week}",
+        f"Total workouts logged: {total_workouts}",
+    ]
+    if trained_this_week:
+        facts.append("Trained recently: " + ", ".join(trained_this_week))
+    if stalest_group is not None:
+        facts.append(f"Needs attention: {stalest_group} ({stalest_days}d since trained)")
+    facts_text = "; ".join(facts)
+
+    prompt = (
+        f"Write ONE short, punchy, casual sentence (max 18 words) with exactly "
+        f"ONE relevant emoji, in the style of a modern fitness app like "
+        f"Duolingo/Whoop. Speak DIRECTLY to the user — address them as "
+        f"'you'/'your', never in the third person. Summarize their week using "
+        f"ONLY these facts, never invent numbers or muscle groups not given: "
+        f"{facts_text}. No quotes, no markdown, just the sentence."
+    )
+    cache_key = ("gym_stats", current_streak, this_week, total_workouts, tuple(trained_this_week), stalest_group, stalest_days)
+    return generate_message(cache_key, prompt, fallback)
+
+
 def generate_hydration_message(percentage_bucket: int, fallback: str) -> str:
     prompt = (
         f"Write ONE short, punchy, casual sentence (max 10 words) with exactly "
