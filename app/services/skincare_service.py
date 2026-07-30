@@ -1,9 +1,10 @@
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.timezone import local_today
 from app.models.skincare import SkincareEntry, SkincareEntryHabit, SkincareHabit
 from app.schemas.skincare import SkincareUpdateRequest
 from app.schemas.skincare_habit import SkincareHabitUpsertItem
@@ -41,7 +42,7 @@ class SkincareService:
 
     @staticmethod
     def _get_or_create_today_entry(db: Session, user_id: UUID) -> SkincareEntry:
-        today = date.today()
+        today = local_today()
 
         entry = (
             db.query(SkincareEntry)
@@ -280,7 +281,7 @@ class SkincareService:
         # calendar day at a time. Today not being logged/complete yet doesn't
         # break a streak, so start from yesterday in that case.
         current_streak = 0
-        cursor = date.today()
+        cursor = local_today()
 
         if cursor not in perfect_dates:
             cursor = cursor - timedelta(days=1)
