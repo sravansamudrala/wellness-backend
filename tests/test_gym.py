@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
+from app.core.config import settings
 from app.core.security import decode_token
 from app.database.session import SessionLocal
 from app.models.gym.exercise import Exercise, MuscleGroup
@@ -120,6 +121,12 @@ def test_quick_log_merges_session_from_just_after_local_midnight(client, auth_he
     of merging into it."""
     fixed_local = datetime(2026, 1, 15, 0, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
     monkeypatch.setattr("app.core.timezone.local_now", lambda: fixed_local)
+    # quick_log's merge window comes from local_day_bounds_utc(), which reads
+    # settings.reminder_timezone directly — patching local_now alone isn't
+    # enough, this must match the zone the scenario above is built around, or
+    # the test only passes by accident of whatever REMINDER_TIMEZONE happens
+    # to be set to in the current environment (it defaults to "UTC" in CI).
+    monkeypatch.setattr(settings, "reminder_timezone", "Asia/Kolkata")
 
     user_id = _user_id(auth_headers)
     naive_utc_completed_at = datetime(2026, 1, 14, 19, 0)  # UTC Jan 14, but local Jan 15
