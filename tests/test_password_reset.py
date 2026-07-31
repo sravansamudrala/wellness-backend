@@ -101,11 +101,11 @@ def test_old_password_rejected_new_password_works_after_reset(client, stub_email
 
     old_login = client.post(
         "/api/v1/auth/login",
-        json={"email": "reset-user4@example.com", "password": "oldpassword1"},
+        json={"identifier": "reset-user4@example.com", "password": "oldpassword1"},
     )
     new_login = client.post(
         "/api/v1/auth/login",
-        json={"email": "reset-user4@example.com", "password": "newpassword1"},
+        json={"identifier": "reset-user4@example.com", "password": "newpassword1"},
     )
 
     assert old_login.status_code == 401
@@ -223,7 +223,7 @@ def test_fresh_login_works_after_password_reset(client, stub_email):
 
     login_response = client.post(
         "/api/v1/auth/login",
-        json={"email": "reset-user8@example.com", "password": "newpassword1"},
+        json={"identifier": "reset-user8@example.com", "password": "newpassword1"},
     )
     new_token = login_response.json()["access_token"]
 

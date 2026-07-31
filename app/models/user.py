@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -24,6 +25,13 @@ class User(Base):
     # (a hard guarantee, not just an app-level check). index=True speeds up the
     # email lookup we do on every login.
     email: Mapped[str] = mapped_column(String, unique=True, index=True)
+
+    # Optional alternate login identifier (see AuthService.authenticate).
+    # Nullable since existing/never-set accounts have none; unique+indexed for
+    # the same reasons as email.
+    username: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, index=True, nullable=True
+    )
 
     # We store the bcrypt hash from security.hash_password — never the password.
     hashed_password: Mapped[str] = mapped_column(String)

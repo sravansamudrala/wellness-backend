@@ -13,6 +13,7 @@ from app.schemas.auth import (
     RegisterRequest,
     ResetPasswordRequest,
     TokenResponse,
+    UpdateMeRequest,
     UserResponse,
 )
 from app.services.auth_service import AuthService
@@ -35,11 +36,18 @@ def register(payload: RegisterRequest, request: Request):
                 detail="Password must be at least 8 characters.",
             )
 
-        user = AuthService.register(db, payload.email, payload.password)
-        if user is None:
+        try:
+            user = AuthService.register(
+                db, payload.email, payload.password, payload.username
+            )
+        except ValueError as e:
+            detail = (
+                "That username is already taken."
+                if str(e) == "username_taken"
+                else "That email is already registered."
+            )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="That email is already registered.",
+                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
             )
 
         # Registration logs you straight in by returning a token.
@@ -56,13 +64,13 @@ def login(payload: LoginRequest, request: Request):
     db: Session = SessionLocal()
 
     try:
-        user = AuthService.authenticate(db, payload.email, payload.password)
+        user = AuthService.authenticate(db, payload.identifier, payload.password)
         if user is None:
-            # One generic message for both "no such email" and "wrong
-            # password" — don't reveal which emails exist.
+            # One generic message for both "no such identifier" and "wrong
+            # password" — don't reveal which accounts exist.
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password.",
+                detail="Incorrect email/username or password.",
             )
 
         return TokenResponse(
@@ -122,5 +130,27 @@ def me(user_id: UUID = Depends(get_current_user)):
                 detail="User not found.",
             )
         return user
+    finally:
+        db.close()
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(payload: UpdateMeRequest, user_id: UUID = Depends(get_current_user)):
+    db: Session = SessionLocal()
+
+    try:
+        try:
+            return AuthService.update_profile(
+                db, user_id, payload.username, payload.email
+            )
+        except ValueError as e:
+            detail = (
+                "That username is already taken."
+                if str(e) == "username_taken"
+                else "That email is already registered."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+            )
     finally:
         db.close()
