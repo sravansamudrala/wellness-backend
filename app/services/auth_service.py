@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from uuid import UUID
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import (
@@ -16,40 +18,108 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _normalize(s: str) -> str:
+    """Strip+lowercase so storage and every lookup compare identically —
+    applied to both email and username, everywhere either touches the DB."""
+    return s.strip().lower()
+
+
 class AuthService:
 
     @staticmethod
-    def register(db: Session, email: str, password: str) -> Optional[User]:
-        """Create a new user, or return None if the email is already taken."""
-        email = email.strip().lower()  # normalize so Email == email == EMAIL
+    def register(
+        db: Session, email: str, password: str, username: Optional[str] = None
+    ) -> User:
+        """Create a new user.
 
-        existing = db.query(User).filter(User.email == email).first()
-        if existing is not None:
-            return None
+        Raises ValueError("email_taken") / ValueError("username_taken") if
+        either is already in use, so the caller can report which one.
+        """
+        email = _normalize(email)
 
-        user = User(email=email, hashed_password=hash_password(password))
+        if db.query(User).filter(User.email == email).first() is not None:
+            raise ValueError("email_taken")
+
+        normalized_username = _normalize(username) if username else None
+        if normalized_username is not None:
+            existing_username = (
+                db.query(User).filter(User.username == normalized_username).first()
+            )
+            if existing_username is not None:
+                raise ValueError("username_taken")
+
+        user = User(
+            email=email,
+            username=normalized_username,
+            hashed_password=hash_password(password),
+        )
         db.add(user)
         db.commit()
         db.refresh(user)
         return user
 
     @staticmethod
-    def authenticate(db: Session, email: str, password: str) -> Optional[User]:
-        """Return the user if email+password are correct, else None.
+    def authenticate(db: Session, identifier: str, password: str) -> Optional[User]:
+        """Return the user if identifier (email or username) + password are
+        correct, else None.
 
-        We do the same work whether or not the email exists (look up, then
-        verify) so an attacker can't tell "email not found" from "wrong
+        We do the same work whether or not the identifier exists (look up,
+        then verify) so an attacker can't tell "not found" from "wrong
         password" — both just fail.
         """
-        email = email.strip().lower()
+        identifier = _normalize(identifier)
 
-        user = db.query(User).filter(User.email == email).first()
+        user = (
+            db.query(User)
+            .filter(or_(User.email == identifier, User.username == identifier))
+            .first()
+        )
         if user is None:
-            logger.warning("Failed login attempt for non-existent user: %s", email)
+            logger.warning("Failed login attempt for non-existent user: %s", identifier)
             return None
         if not verify_password(password, user.hashed_password):
-            logger.warning("Login failed: wrong password for %s", email)
+            logger.warning("Login failed: wrong password for %s", identifier)
             return None
+        return user
+
+    @staticmethod
+    def update_profile(
+        db: Session,
+        user_id: UUID,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+    ) -> User:
+        """Update the current user's username and/or email.
+
+        Raises ValueError("username_taken") / ValueError("email_taken") if
+        either value belongs to a *different* user.
+        """
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if username is not None:
+            normalized_username = _normalize(username)
+            conflict = (
+                db.query(User)
+                .filter(User.username == normalized_username, User.id != user_id)
+                .first()
+            )
+            if conflict is not None:
+                raise ValueError("username_taken")
+            user.username = normalized_username
+
+        if email is not None:
+            normalized_email = _normalize(email)
+            conflict = (
+                db.query(User)
+                .filter(User.email == normalized_email, User.id != user_id)
+                .first()
+            )
+            if conflict is not None:
+                raise ValueError("email_taken")
+            user.email = normalized_email
+
+        db.commit()
+        db.refresh(user)
         return user
 
     @staticmethod
