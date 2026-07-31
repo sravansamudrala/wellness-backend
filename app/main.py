@@ -10,6 +10,7 @@ from app.api.push import router as push_router
 from app.api.gym import router as gym_router
 from app.api.auth import router as auth_router
 from app.api.water import router as water_router
+from app.api.food import router as food_router
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
@@ -61,6 +62,7 @@ app.include_router(reminder_settings_router)
 app.include_router(push_router)
 app.include_router(gym_router)
 app.include_router(water_router)
+app.include_router(food_router)
 
 @app.get("/")
 def root():

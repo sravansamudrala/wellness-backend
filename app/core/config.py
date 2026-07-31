@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.1-8b-instant"
 
+    # Vision-capable Groq model used only by the food-photo calorie estimator
+    # (the text model above can't accept image input). Groq deprecated the
+    # Llama 4 Scout/Maverick vision models on the free/dev tier in March 2026;
+    # qwen/qwen3.6-27b is the current replacement (console.groq.com/docs/vision).
+    groq_vision_model: str = "qwen/qwen3.6-27b"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
