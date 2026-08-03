@@ -156,6 +156,9 @@ def get_insights(db: Session, user_id: UUID) -> dict:
         slabs = slabs_by_meter.get(meter.id, [])
         bracket = bracket_for(cumulative, slabs)
         next_min = _next_slab_min(bracket, slabs)
+        # anchor falls back to the meter's first-ever reading when it's never
+        # been billed — that's not an actual bill, so don't label it as one.
+        billed_reading = anchor if meter.last_billed_reading_id is not None else None
 
         results.append(
             {
@@ -165,6 +168,7 @@ def get_insights(db: Session, user_id: UUID) -> dict:
                 "status": "active" if is_active else "standby",
                 "cumulative_units": cumulative,
                 "last_reading": latest,
+                "last_billed_reading": billed_reading,
                 "days_since_bill": (today - anchor.reading_date).days if anchor else None,
                 "current_bracket": bracket,
                 "next_slab_min": next_min,

@@ -101,6 +101,7 @@ class InsightsMeterResponse(BaseModel):
     status: str  # "active" | "standby"
     cumulative_units: float
     last_reading: Optional[ReadingResponse] = None
+    last_billed_reading: Optional[ReadingResponse] = None
     days_since_bill: Optional[int] = None
     current_bracket: Optional[SlabBracketResponse] = None
     next_slab_min: Optional[float] = None
