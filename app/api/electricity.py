@@ -10,6 +10,7 @@ from app.schemas.electricity import (
     InsightsResponse,
     MeterCreateRequest,
     MeterResponse,
+    MeterShareCreateRequest,
     ReadingCreateRequest,
     ReadingResponse,
     SwitchEventCreateRequest,
@@ -38,6 +39,8 @@ _ERROR_RESPONSES = {
     ),
     "no_active_meter": (status.HTTP_400_BAD_REQUEST, "No active meter to switch from"),
     "already_active_meter": (status.HTTP_400_BAD_REQUEST, "That meter is already active"),
+    "user_not_found": (status.HTTP_404_NOT_FOUND, "No account with that email"),
+    "cannot_share_with_self": (status.HTTP_400_BAD_REQUEST, "You already have access to your own meter"),
 }
 
 
@@ -67,6 +70,22 @@ def list_meters(user_id: UUID = Depends(get_current_user)):
     db: Session = SessionLocal()
     try:
         return ElectricityService.list_meters(db, user_id)
+    finally:
+        db.close()
+
+
+@router.post("/meters/{meter_id}/share", response_model=MeterResponse)
+def share_meter(
+    meter_id: UUID,
+    request: MeterShareCreateRequest,
+    user_id: UUID = Depends(get_current_user),
+):
+    db: Session = SessionLocal()
+    try:
+        try:
+            return ElectricityService.share_meter(db, user_id, meter_id, request.email)
+        except ValueError as e:
+            _raise_for(e)
     finally:
         db.close()
 

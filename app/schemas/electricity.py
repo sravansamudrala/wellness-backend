@@ -28,6 +28,13 @@ class ReadingCreateRequest(BaseModel):
     is_billed_reading: bool = False
 
 
+class MeterShareCreateRequest(BaseModel):
+    """Owner-only — see ElectricityService.share_meter. Identifies the other
+    user by email since that's the only identifier a user would know for
+    someone else's account (no user search/directory in this app)."""
+    email: str
+
+
 class SwitchEventCreateRequest(BaseModel):
     """Both readings of a switch share one date and entry method — a switch
     happens at a single point in time. is_billed_reading, if set, always
@@ -58,6 +65,8 @@ class MeterResponse(BaseModel):
     last_billed_reading_id: Optional[UUID] = None
     created_at: datetime
     slab_thresholds: List[SlabThresholdResponse] = []
+    is_owner: bool = True
+    shared_with: List[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -99,6 +108,8 @@ class InsightsMeterResponse(BaseModel):
     label: str
     meter_number: Optional[str] = None
     status: str  # "active" | "standby"
+    is_owner: bool = True
+    shared_with: List[str] = []
     cumulative_units: float
     last_reading: Optional[ReadingResponse] = None
     last_billed_reading: Optional[ReadingResponse] = None
