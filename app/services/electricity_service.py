@@ -12,18 +12,29 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.electricity import Meter, MeterReading, MeterSwitchEvent, SlabThreshold
+from app.models.electricity import Meter, MeterReading, MeterShare, MeterSwitchEvent, SlabThreshold
+from app.models.user import User
 from app.schemas.electricity import (
     MeterCreateRequest,
     ReadingCreateRequest,
     SwitchEventCreateRequest,
 )
-from app.services.electricity_insights_service import resolve_active_meter_id
+from app.services.electricity_insights_service import (
+    accessible_meter_ids,
+    resolve_active_meter_id,
+    shared_emails_by_meter,
+)
 
 MAX_METERS_PER_USER = 2
 
 
-def _meter_response(meter: Meter, slab_thresholds: List[SlabThreshold]) -> dict:
+def _meter_response(
+    meter: Meter,
+    slab_thresholds: List[SlabThreshold],
+    viewer_user_id: UUID,
+    shared_emails: List[str],
+) -> dict:
+    is_owner = meter.user_id == viewer_user_id
     return {
         "id": meter.id,
         "label": meter.label,
@@ -31,6 +42,10 @@ def _meter_response(meter: Meter, slab_thresholds: List[SlabThreshold]) -> dict:
         "last_billed_reading_id": meter.last_billed_reading_id,
         "created_at": meter.created_at,
         "slab_thresholds": slab_thresholds,
+        "is_owner": is_owner,
+        # Only the owner should see who else has access — a shared viewer
+        # has no business relationship with the meter's *other* viewers.
+        "shared_with": shared_emails if is_owner else [],
     }
 
 
@@ -86,40 +101,77 @@ class ElectricityService:
         db.refresh(meter)
         for slab in slabs:
             db.refresh(slab)
-        return _meter_response(meter, slabs)
+        return _meter_response(meter, slabs, user_id, [])
 
     @staticmethod
     def list_meters(db: Session, user_id: UUID) -> List[dict]:
+        meter_ids = accessible_meter_ids(db, user_id)
+        if not meter_ids:
+            return []
+
         meters = (
             db.query(Meter)
-            .filter(Meter.user_id == user_id)
+            .filter(Meter.id.in_(meter_ids))
             .order_by(Meter.created_at.asc())
             .all()
         )
-        if not meters:
-            return []
 
         slabs = (
             db.query(SlabThreshold)
-            .filter(SlabThreshold.meter_id.in_([m.id for m in meters]))
+            .filter(SlabThreshold.meter_id.in_(meter_ids))
             .all()
         )
         slabs_by_meter: dict = {}
         for slab in slabs:
             slabs_by_meter.setdefault(slab.meter_id, []).append(slab)
 
-        return [_meter_response(m, slabs_by_meter.get(m.id, [])) for m in meters]
+        shared_by_meter = shared_emails_by_meter(db, meter_ids)
+
+        return [
+            _meter_response(
+                m, slabs_by_meter.get(m.id, []), user_id, shared_by_meter.get(m.id, [])
+            )
+            for m in meters
+        ]
 
     @staticmethod
-    def _get_owned_meter(db: Session, user_id: UUID, meter_id: UUID) -> Meter:
-        meter = (
-            db.query(Meter)
-            .filter(Meter.id == meter_id, Meter.user_id == user_id)
-            .first()
-        )
+    def _get_accessible_meter(db: Session, user_id: UUID, meter_id: UUID) -> Meter:
+        if meter_id not in accessible_meter_ids(db, user_id):
+            raise ValueError("meter_not_found")
+        meter = db.query(Meter).filter(Meter.id == meter_id).first()
         if meter is None:
             raise ValueError("meter_not_found")
         return meter
+
+    @staticmethod
+    def share_meter(db: Session, owner_user_id: UUID, meter_id: UUID, email: str) -> dict:
+        # Filtered on user_id up front, same as every other meter lookup —
+        # a non-owner gets the same meter_not_found whether the id belongs to
+        # someone else's meter or doesn't exist at all. Two different error
+        # codes here would let a non-owner probe arbitrary meter ids for
+        # existence, which _get_accessible_meter is careful to avoid too.
+        meter = db.query(Meter).filter(Meter.id == meter_id, Meter.user_id == owner_user_id).first()
+        if meter is None:
+            raise ValueError("meter_not_found")
+
+        target_user = db.query(User).filter(User.email == email).first()
+        if target_user is None:
+            raise ValueError("user_not_found")
+        if target_user.id == owner_user_id:
+            raise ValueError("cannot_share_with_self")
+
+        existing_share = (
+            db.query(MeterShare)
+            .filter(MeterShare.meter_id == meter_id, MeterShare.shared_with_user_id == target_user.id)
+            .first()
+        )
+        if existing_share is None:
+            db.add(MeterShare(meter_id=meter_id, shared_with_user_id=target_user.id))
+            db.commit()
+
+        slabs = db.query(SlabThreshold).filter(SlabThreshold.meter_id == meter_id).all()
+        shared_emails = shared_emails_by_meter(db, [meter_id]).get(meter_id, [])
+        return _meter_response(meter, slabs, owner_user_id, shared_emails)
 
     # ----- Readings -----
 
@@ -166,7 +218,7 @@ class ElectricityService:
     def create_reading(
         db: Session, user_id: UUID, meter_id: UUID, request: ReadingCreateRequest
     ) -> MeterReading:
-        meter = ElectricityService._get_owned_meter(db, user_id, meter_id)
+        meter = ElectricityService._get_accessible_meter(db, user_id, meter_id)
         previous = ElectricityService._latest_reading(db, meter_id)
 
         reading = ElectricityService._build_reading(
@@ -188,7 +240,7 @@ class ElectricityService:
 
     @staticmethod
     def list_readings(db: Session, user_id: UUID, meter_id: UUID) -> List[MeterReading]:
-        ElectricityService._get_owned_meter(db, user_id, meter_id)
+        ElectricityService._get_accessible_meter(db, user_id, meter_id)
         return (
             db.query(MeterReading)
             .filter(MeterReading.meter_id == meter_id)
@@ -208,8 +260,8 @@ class ElectricityService:
         if outgoing_meter_id == request.incoming_meter_id:
             raise ValueError("already_active_meter")
 
-        outgoing_meter = ElectricityService._get_owned_meter(db, user_id, outgoing_meter_id)
-        incoming_meter = ElectricityService._get_owned_meter(
+        outgoing_meter = ElectricityService._get_accessible_meter(db, user_id, outgoing_meter_id)
+        incoming_meter = ElectricityService._get_accessible_meter(
             db, user_id, request.incoming_meter_id
         )
 
@@ -257,9 +309,16 @@ class ElectricityService:
 
     @staticmethod
     def list_switch_events(db: Session, user_id: UUID) -> List[dict]:
+        # Based on the accessible meter set, not switch_events.user_id — a
+        # shared user should see switches the owner made too, same reasoning
+        # as resolve_active_meter_id.
+        meter_ids = accessible_meter_ids(db, user_id)
         events = (
             db.query(MeterSwitchEvent)
-            .filter(MeterSwitchEvent.user_id == user_id)
+            .filter(
+                MeterSwitchEvent.outgoing_meter_id.in_(meter_ids)
+                | MeterSwitchEvent.incoming_meter_id.in_(meter_ids)
+            )
             .order_by(MeterSwitchEvent.switched_at.desc())
             .all()
         )

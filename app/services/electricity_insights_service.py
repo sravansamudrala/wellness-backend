@@ -11,7 +11,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.electricity import Meter, MeterReading, MeterSwitchEvent, SlabThreshold
+from app.models.electricity import Meter, MeterReading, MeterShare, MeterSwitchEvent, SlabThreshold
+from app.models.user import User
 
 # How close to the next slab boundary (as a fraction of the current
 # bracket's width) counts as "approaching" — nudge proactively before that
@@ -19,12 +20,49 @@ from app.models.electricity import Meter, MeterReading, MeterSwitchEvent, SlabTh
 APPROACHING_FRACTION = 0.15
 
 
+def accessible_meter_ids(db: Session, user_id: UUID) -> List[UUID]:
+    """Meters this user can see/log on: the ones they own, plus any shared
+    with them via MeterShare. Every read/write path that used to filter on
+    Meter.user_id == user_id alone should filter on this set instead."""
+    owned = db.query(Meter.id).filter(Meter.user_id == user_id)
+    shared = db.query(MeterShare.meter_id).filter(MeterShare.shared_with_user_id == user_id)
+    return [row.id for row in owned] + [row.meter_id for row in shared]
+
+
+def shared_emails_by_meter(db: Session, meter_ids: List[UUID]) -> dict:
+    """meter_id -> list of emails it's been shared with, for the meters that
+    have any shares at all — meters with none just won't be a key."""
+    if not meter_ids:
+        return {}
+    rows = (
+        db.query(MeterShare.meter_id, User.email)
+        .join(User, User.id == MeterShare.shared_with_user_id)
+        .filter(MeterShare.meter_id.in_(meter_ids))
+        .all()
+    )
+    result: dict = {}
+    for meter_id, email in rows:
+        result.setdefault(meter_id, []).append(email)
+    return result
+
+
 def resolve_active_meter_id(db: Session, user_id: UUID) -> Optional[UUID]:
-    """The active meter = incoming_meter_id of the user's most recent switch
-    event, or their first-created meter if they've never switched."""
+    """The active meter = incoming_meter_id of the most recent switch event
+    among this user's accessible meters, or the first-created accessible
+    meter if there's never been a switch. Based on the accessible meter set
+    rather than the requesting user's own switch_events.user_id, so a shared
+    user sees the same active/standby status as the owner — a switch is a
+    property of the meters, not of whoever happened to log it."""
+    meter_ids = accessible_meter_ids(db, user_id)
+    if not meter_ids:
+        return None
+
     latest_switch = (
         db.query(MeterSwitchEvent)
-        .filter(MeterSwitchEvent.user_id == user_id)
+        .filter(
+            MeterSwitchEvent.incoming_meter_id.in_(meter_ids)
+            | MeterSwitchEvent.outgoing_meter_id.in_(meter_ids)
+        )
         .order_by(MeterSwitchEvent.switched_at.desc())
         .first()
     )
@@ -33,7 +71,7 @@ def resolve_active_meter_id(db: Session, user_id: UUID) -> Optional[UUID]:
 
     first_meter = (
         db.query(Meter)
-        .filter(Meter.user_id == user_id)
+        .filter(Meter.id.in_(meter_ids))
         .order_by(Meter.created_at.asc())
         .first()
     )
@@ -127,26 +165,29 @@ def _nudge_text(
 
 
 def get_insights(db: Session, user_id: UUID) -> dict:
+    meter_ids = accessible_meter_ids(db, user_id)
+    if not meter_ids:
+        return {"meters": []}
+
     meters = (
         db.query(Meter)
-        .filter(Meter.user_id == user_id)
+        .filter(Meter.id.in_(meter_ids))
         .order_by(Meter.created_at.asc())
         .all()
     )
-    if not meters:
-        return {"meters": []}
 
     active_meter_id = resolve_active_meter_id(db, user_id)
 
     slabs_by_meter = {}
-    if meters:
-        all_slabs = (
-            db.query(SlabThreshold)
-            .filter(SlabThreshold.meter_id.in_([m.id for m in meters]))
-            .all()
-        )
-        for slab in all_slabs:
-            slabs_by_meter.setdefault(slab.meter_id, []).append(slab)
+    all_slabs = (
+        db.query(SlabThreshold)
+        .filter(SlabThreshold.meter_id.in_([m.id for m in meters]))
+        .all()
+    )
+    for slab in all_slabs:
+        slabs_by_meter.setdefault(slab.meter_id, []).append(slab)
+
+    shared_by_meter = shared_emails_by_meter(db, meter_ids)
 
     today = datetime.utcnow().date()
     results = []
@@ -159,6 +200,7 @@ def get_insights(db: Session, user_id: UUID) -> dict:
         # anchor falls back to the meter's first-ever reading when it's never
         # been billed — that's not an actual bill, so don't label it as one.
         billed_reading = anchor if meter.last_billed_reading_id is not None else None
+        is_owner = meter.user_id == user_id
 
         results.append(
             {
@@ -166,6 +208,10 @@ def get_insights(db: Session, user_id: UUID) -> dict:
                 "label": meter.label,
                 "meter_number": meter.meter_number,
                 "status": "active" if is_active else "standby",
+                "is_owner": is_owner,
+                # Only the owner sees who else has access — see the matching
+                # comment on _meter_response in electricity_service.py.
+                "shared_with": shared_by_meter.get(meter.id, []) if is_owner else [],
                 "cumulative_units": cumulative,
                 "last_reading": latest,
                 "last_billed_reading": billed_reading,

@@ -1,3 +1,5 @@
+import uuid
+
 from app.database.session import SessionLocal
 from app.models.feature_flag import FeatureFlag
 
@@ -6,6 +8,15 @@ FEATURE_KEY = "electricity_tracker"
 
 def _user_id_from_response(response):
     return response.json()["id"]
+
+
+def _register_and_get_headers(client, email):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "supersecret123"},
+    )
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _enable_feature(auth_headers, client):
@@ -170,3 +181,75 @@ def test_insights_bracket_and_nudge_tone_before_and_after_threshold(client, auth
     assert entry_after["current_bracket"]["slab_min"] == 100
     assert entry_after["next_slab_min"] is None
     assert "top slab" in entry_after["nudge_text"]
+
+
+def test_shared_user_can_view_and_log_readings_on_a_shared_meter(client, auth_headers):
+    _enable_feature(auth_headers, client)
+    meter = _create_meter(client, auth_headers, "Shared Meter")
+
+    other_email = f"shared-{uuid.uuid4()}@example.com"
+    other_headers = _register_and_get_headers(client, other_email)
+    _enable_feature(other_headers, client)
+
+    # Not shared yet — the other user can't see or touch it.
+    before = client.get("/api/v1/electricity/meters", headers=other_headers)
+    assert before.json() == []
+    denied_reading = client.post(
+        f"/api/v1/electricity/meters/{meter['id']}/readings",
+        json={"reading_value": 100, "reading_date": "2026-08-01"},
+        headers=other_headers,
+    )
+    assert denied_reading.status_code == 404
+
+    share = client.post(
+        f"/api/v1/electricity/meters/{meter['id']}/share",
+        json={"email": other_email},
+        headers=auth_headers,
+    )
+    assert share.status_code == 200, share.text
+    assert share.json()["shared_with"] == [other_email]
+
+    # Now visible to the other user, marked as not theirs, and writable —
+    # but they don't see who else has access (that's owner-only info).
+    other_list = client.get("/api/v1/electricity/meters", headers=other_headers).json()
+    assert [m["id"] for m in other_list] == [meter["id"]]
+    assert other_list[0]["is_owner"] is False
+    assert other_list[0]["shared_with"] == []
+
+    reading = client.post(
+        f"/api/v1/electricity/meters/{meter['id']}/readings",
+        json={"reading_value": 500, "reading_date": "2026-08-01"},
+        headers=other_headers,
+    )
+    assert reading.status_code == 200
+
+    # The owner sees the shared user's reading too, via insights.
+    owner_insights = client.get("/api/v1/electricity/insights", headers=auth_headers).json()
+    assert owner_insights["meters"][0]["last_reading"]["reading_value"] == 500
+    assert owner_insights["meters"][0]["is_owner"] is True
+    assert owner_insights["meters"][0]["shared_with"] == [other_email]
+
+
+def test_only_the_owner_can_share_a_meter(client, auth_headers):
+    _enable_feature(auth_headers, client)
+    meter = _create_meter(client, auth_headers, "Meter A")
+
+    other_email = f"nonowner-{uuid.uuid4()}@example.com"
+    other_headers = _register_and_get_headers(client, other_email)
+    _enable_feature(other_headers, client)
+
+    # A non-owner gets the same 404 as a nonexistent meter would — sharing
+    # never reveals whether a meter id it doesn't own exists at all.
+    forbidden = client.post(
+        f"/api/v1/electricity/meters/{meter['id']}/share",
+        json={"email": other_email},
+        headers=other_headers,
+    )
+    assert forbidden.status_code == 404
+
+    no_such_user = client.post(
+        f"/api/v1/electricity/meters/{meter['id']}/share",
+        json={"email": "nobody-registered@example.com"},
+        headers=auth_headers,
+    )
+    assert no_such_user.status_code == 404

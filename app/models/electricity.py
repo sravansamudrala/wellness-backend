@@ -172,3 +172,34 @@ class SlabThreshold(Base):
     slab_min: Mapped[float] = mapped_column(Numeric)
     # Null = open-ended top slab.
     slab_max: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
+
+
+
+class MeterShare(Base):
+    """Grants a user other than the owner access to a meter — they can view
+    and log readings on it, same as the owner. See Meter.user_id for the
+    owner; this table is the extra viewers/loggers on top of that."""
+    __tablename__ = "meter_shares"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    meter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("meters.id"),
+        index=True,
+    )
+
+    shared_with_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+    )
