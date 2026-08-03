@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import decode_token_claims
 from app.database.session import SessionLocal
+from app.models.feature_flag import FeatureFlag
 from app.models.user import User
 
 # Extracts the "Authorization: Bearer <token>" header. auto_error=False means
@@ -62,3 +63,36 @@ def get_current_user(
         )
 
     return user_id
+
+
+def require_feature(feature_key: str):
+    """Gate a router behind a per-user feature flag. Default-deny: a missing
+    row means the feature is off, same as an explicit `enabled=False` row —
+    there's no fail-open case.
+
+    Usage: `APIRouter(dependencies=[Depends(require_feature("electricity_tracker"))])`.
+    """
+
+    def _check(user_id: UUID = Depends(get_current_user)) -> UUID:
+        db = SessionLocal()
+        try:
+            flag = (
+                db.query(FeatureFlag)
+                .filter(
+                    FeatureFlag.user_id == user_id,
+                    FeatureFlag.feature_key == feature_key,
+                )
+                .first()
+            )
+        finally:
+            db.close()
+
+        if flag is None or not flag.enabled:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This feature is not enabled for your account",
+            )
+
+        return user_id
+
+    return _check
