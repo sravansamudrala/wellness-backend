@@ -6,6 +6,8 @@ from app.models.push_subscription import PushSubscription
 from app.models.reminder_dispatch_log import ReminderDispatchLog
 from app.models.water import WaterEntry, WaterSettings
 from app.models.food import FoodEntry
+from app.models.feature_flag import FeatureFlag
+from app.models.electricity import Meter, MeterReading, MeterSwitchEvent, SlabThreshold
 
 # Gym module models (subpackage imports every gym table so create_all/Alembic see them).
 import app.models.gym  # noqa: F401
