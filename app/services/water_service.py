@@ -145,6 +145,39 @@ class WaterService:
     
 
     @staticmethod
+    def get_current_streak(db: Session, user_id: UUID) -> int:
+        """Just the current streak count, with no Groq call - unlike
+        get_stats(), which also generates an AI streak message. Used by the
+        Aiwt water-message model (app/ai/water_message), which must not
+        trigger an unrelated Groq call on every reminder dispatch."""
+        entries = (
+            db.query(WaterEntry)
+            .filter(WaterEntry.user_id == user_id)
+            .order_by(WaterEntry.date.asc())
+            .all()
+        )
+
+        if not entries:
+            return 0
+
+        settings = WaterService.get_settings(db, user_id)
+        daily_goal_ml = settings.daily_goal_ml
+
+        completed_dates = {e.date for e in entries if e.amount_ml >= daily_goal_ml}
+
+        current_streak = 0
+        cursor = local_today()
+
+        if cursor not in completed_dates:
+            cursor = cursor - timedelta(days=1)
+
+        while cursor in completed_dates:
+            current_streak += 1
+            cursor = cursor - timedelta(days=1)
+
+        return current_streak
+
+    @staticmethod
     def get_stats(db: Session, user_id: UUID):
         entries = (
             db.query(WaterEntry)
