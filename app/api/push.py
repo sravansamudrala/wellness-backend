@@ -51,10 +51,12 @@ def debug_water_message(
 
     input_text = f"water reminder | goal: {goal}% | streak: {streak} | time: {time}"
     raw = inference.generate_water_message(input_text)
+    validated = inference.generate_validated_water_message(input_text)
     return {
         "input_text": input_text,
         "raw": raw,
         "passed_guardrails": guardrails.check(raw) is not None,
+        "validated": validated,
     }
 
 
