@@ -1,3 +1,4 @@
+import hashlib
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -55,6 +56,31 @@ def debug_water_message(
         "raw": raw,
         "passed_guardrails": guardrails.check(raw) is not None,
     }
+
+
+@router.get("/_debug/artifact-info")
+def debug_artifact_info(token: str = Query(default="")):
+    # Reports sha256 + byte size of the Aiwt encoder/decoder .onnx files as
+    # actually loaded on disk here, so it can be diffed against a local
+    # dev checkout's hashes - the direct way to confirm whether a deployed
+    # environment is running the same weights as expected (e.g. a git-lfs
+    # pull that silently didn't fetch real content).
+    if not settings.dispatch_token or token != settings.dispatch_token:
+        raise HTTPException(status_code=401, detail="Invalid dispatch token")
+
+    result = {}
+    for name in ("encoder_model.onnx", "decoder_model.onnx", "spiece.model"):
+        path = inference.ARTIFACT_DIR / name
+        if not path.exists():
+            result[name] = {"exists": False}
+            continue
+        data = path.read_bytes()
+        result[name] = {
+            "exists": True,
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    return result
 
 
 @router.post("/dispatch")
