@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 from pywebpush import webpush, WebPushException
 from sqlalchemy.orm import Session
 from app.ai.water_message import context as water_context
-from app.ai.water_message import guardrails as water_guardrails
 from app.ai.water_message import inference as water_inference
 from app.core.config import settings
 from app.models.push_subscription import PushSubscription
@@ -247,8 +246,7 @@ class PushService:
                             current_streak=WaterService.get_current_streak(db, user_id),
                             hour=hour,
                         )
-                        generated = water_inference.generate_water_message(input_text)
-                        checked = water_guardrails.check(generated)
+                        checked = water_inference.generate_validated_water_message(input_text)
                         if checked is not None:
                             body = checked
                     except Exception:
