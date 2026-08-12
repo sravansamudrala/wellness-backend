@@ -5,6 +5,7 @@ generic one.
 """
 
 MAX_LENGTH = 100
+CLAUSE_SEPARATOR = "—"  # em dash
 
 
 def check(message: str) -> str | None:
@@ -17,6 +18,19 @@ def check(message: str) -> str | None:
 
     if not message.rstrip().endswith((".", "!", "?")):
         return None  # truncated mid-sentence
+
+    # Verified against all 680 rows of wellness-ml's dataset_train.jsonl:
+    # every real target is exactly two clauses joined by a single em dash
+    # (e.g. "You're almost at your goal — don't stop now."). A decode
+    # producing zero, two, or more separators is blending more than two
+    # training-target clauses into one run-on - the exact shape the
+    # garbled-notification bug took - not a valid generation.
+    if message.count(CLAUSE_SEPARATOR) != 1:
+        return None
+
+    clause_a, clause_b = message.split(CLAUSE_SEPARATOR)
+    if not clause_a.strip() or not clause_b.strip():
+        return None
 
     # Training targets never contain digits (bucket phrasing is purely
     # qualitative, e.g. "quarter to halfway" rather than "43%") - any digit
