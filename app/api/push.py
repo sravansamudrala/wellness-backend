@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.ai.water_message import guardrails, inference
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.database.session import SessionLocal
@@ -29,6 +30,31 @@ def subscribe(
         return {"status": "ok"}
     finally:
         db.close()
+
+
+@router.get("/_debug/water-message")
+def debug_water_message(
+    goal: str = Query(...),
+    streak: str = Query(...),
+    time: str = Query(...),
+    token: str = Query(default=""),
+):
+    # Kept deliberately (not temporary) as a way to test Aiwt's bucketed
+    # generation directly on Render - e.g. comparing against local dev to
+    # rule out cross-platform ONNX divergence - without any push send or
+    # ReminderDispatchLog write. Scoped to water-message only for now;
+    # other modules adopting this bucketed-generation pattern (gym, etc.)
+    # will need their own equivalent route, not a reuse of this one.
+    if not settings.dispatch_token or token != settings.dispatch_token:
+        raise HTTPException(status_code=401, detail="Invalid dispatch token")
+
+    input_text = f"water reminder | goal: {goal}% | streak: {streak} | time: {time}"
+    raw = inference.generate_water_message(input_text)
+    return {
+        "input_text": input_text,
+        "raw": raw,
+        "passed_guardrails": guardrails.check(raw) is not None,
+    }
 
 
 @router.post("/dispatch")
