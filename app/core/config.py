@@ -66,10 +66,16 @@ class Settings(BaseSettings):
     # qwen/qwen3.6-27b is the current replacement (console.groq.com/docs/vision).
     groq_vision_model: str = "qwen/qwen3.6-27b"
 
-    # Kill switch for Aiwt, our fine-tuned water-message model (app/ai/water_message).
-    # False → dispatch_water_due always uses the static WATER_MESSAGE, no model call
+    # Kill switch for Aiwt, our fine-tuned water-message model. False →
+    # dispatch_water_due always uses the static WATER_MESSAGE, no model call
     # at all. Lets ops disable the feature via env var without a redeploy.
     water_message_model_enabled: bool = True
+
+    # Base URL of the standalone wellness-aiwt service (github.com/
+    # sravansamudrala/wellness-aiwt) that now serves Aiwt - e.g.
+    # https://wellness-aiwt.onrender.com. Empty disables the feature (same
+    # as water_message_model_enabled=False) since there's nothing to call.
+    aiwt_service_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

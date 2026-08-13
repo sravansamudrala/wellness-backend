@@ -4,9 +4,8 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 from pywebpush import webpush, WebPushException
 from sqlalchemy.orm import Session
-from app.ai.water_message import context as water_context
-from app.ai.water_message import inference as water_inference
 from app.core.config import settings
+from app.services import aiwt_service
 from app.models.push_subscription import PushSubscription
 from app.models.reminder_dispatch_log import ReminderDispatchLog
 from app.models.reminder_settings import ReminderSettings
@@ -238,22 +237,15 @@ class PushService:
                     continue
 
                 title, body = WATER_MESSAGE
-                if settings.water_message_model_enabled and water_inference.is_available():
-                    try:
-                        input_text = water_context.build_input_text(
-                            amount_ml=entry.amount_ml if entry is not None else 0,
-                            goal_ml=water_settings.daily_goal_ml,
-                            current_streak=WaterService.get_current_streak(db, user_id),
-                            hour=hour,
-                        )
-                        checked = water_inference.generate_validated_water_message(input_text)
-                        if checked is not None:
-                            body = checked
-                    except Exception:
-                        logger.exception(
-                            "Aiwt water-message generation failed for user %s — using static fallback",
-                            user_id,
-                        )
+                if settings.water_message_model_enabled:
+                    checked = aiwt_service.generate_water_message(
+                        amount_ml=entry.amount_ml if entry is not None else 0,
+                        goal_ml=water_settings.daily_goal_ml,
+                        current_streak=WaterService.get_current_streak(db, user_id),
+                        hour=hour,
+                    )
+                    if checked is not None:
+                        body = checked
 
                 count, errs = PushService.send_to_user(db, user_id, title, body)
                 result["errors"].extend(errs)
