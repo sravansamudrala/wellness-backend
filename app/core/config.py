@@ -78,6 +78,30 @@ class Settings(BaseSettings):
     # as water_message_model_enabled=False) since there's nothing to call.
     aiwt_service_url: str = ""
 
+    # How many calendar days must elapse since the billing anchor before the
+    # meter-slab-recommendation evaluation begins. Must be >= 1: the
+    # evaluation divides consumption by this many elapsed days, so 0 (or
+    # less) would divide by zero.
+    meter_slab_min_evaluation_days: int = Field(default=10, ge=1)
+
+    # Safety margin (in units) kept below a meter's next slab boundary when
+    # computing its operational threshold — the only safety margin used
+    # anywhere in the meter-slab-recommendation feature. Must be >= 0 (a
+    # negative buffer would push the operational threshold past the slab
+    # boundary it's meant to stay under).
+    meter_slab_safety_buffer_units: float = Field(default=2, ge=0)
+
+    # Fallback assumed billing-period length (in days) when too few historical
+    # billed readings exist to compute a reliable median. Must be >= 1: it's
+    # added as a day count to a date.
+    meter_slab_default_billing_period_days: int = Field(default=30, ge=1)
+
+    # Minimum number of historical billing intervals required before trusting
+    # their median over the default billing-period-length fallback above.
+    # Must be >= 1: a value of 0 would let a zero-interval (empty) history
+    # pass the "sufficient" check and call statistics.median() on no data.
+    meter_slab_min_billing_intervals_for_estimate: int = Field(default=2, ge=1)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
