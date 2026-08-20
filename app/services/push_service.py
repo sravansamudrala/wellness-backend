@@ -6,15 +6,13 @@ from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.core.timezone import local_today
-from app.models.electricity import Meter, MeterShare
-from app.models.feature_flag import FeatureFlag
+from app.services import aiwt_service
 from app.models.push_subscription import PushSubscription
 from app.models.reminder_dispatch_log import ReminderDispatchLog
 from app.models.reminder_settings import ReminderSettings
 from app.models.water import WaterEntry, WaterSettings
 from app.schemas.push import PushSubscriptionRequest
-from app.services.meter_slab_recommendation_service import evaluate_switch_recommendation
+from app.services.water_service import WaterService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -245,6 +243,16 @@ class PushService:
                     continue
 
                 title, body = WATER_MESSAGE
+                if settings.water_message_model_enabled:
+                    checked = aiwt_service.generate_water_message(
+                        amount_ml=entry.amount_ml if entry is not None else 0,
+                        goal_ml=water_settings.daily_goal_ml,
+                        current_streak=WaterService.get_current_streak(db, user_id),
+                        hour=hour,
+                    )
+                    if checked is not None:
+                        body = checked
+
                 count, errs = PushService.send_to_user(db, user_id, title, body)
                 result["errors"].extend(errs)
 

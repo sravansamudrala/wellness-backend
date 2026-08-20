@@ -67,29 +67,16 @@ class Settings(BaseSettings):
     # qwen/qwen3.6-27b is the current replacement (console.groq.com/docs/vision).
     groq_vision_model: str = "qwen/qwen3.6-27b"
 
-    # How many calendar days must elapse since the billing anchor before the
-    # meter-slab-recommendation evaluation begins. Must be >= 1: the
-    # evaluation divides consumption by this many elapsed days, so 0 (or
-    # less) would divide by zero.
-    meter_slab_min_evaluation_days: int = Field(default=10, ge=1)
+    # Kill switch for Aiwt, our fine-tuned water-message model. False →
+    # dispatch_water_due always uses the static WATER_MESSAGE, no model call
+    # at all. Lets ops disable the feature via env var without a redeploy.
+    water_message_model_enabled: bool = True
 
-    # Safety margin (in units) kept below a meter's next slab boundary when
-    # computing its operational threshold — the only safety margin used
-    # anywhere in the meter-slab-recommendation feature. Must be >= 0 (a
-    # negative buffer would push the operational threshold past the slab
-    # boundary it's meant to stay under).
-    meter_slab_safety_buffer_units: float = Field(default=2, ge=0)
-
-    # Fallback assumed billing-period length (in days) when too few historical
-    # billed readings exist to compute a reliable median. Must be >= 1: it's
-    # added as a day count to a date.
-    meter_slab_default_billing_period_days: int = Field(default=30, ge=1)
-
-    # Minimum number of historical billing intervals required before trusting
-    # their median over the default billing-period-length fallback above.
-    # Must be >= 1: a value of 0 would let a zero-interval (empty) history
-    # pass the "sufficient" check and call statistics.median() on no data.
-    meter_slab_min_billing_intervals_for_estimate: int = Field(default=2, ge=1)
+    # Base URL of the standalone wellness-aiwt service (github.com/
+    # sravansamudrala/wellness-aiwt) that now serves Aiwt - e.g.
+    # https://wellness-aiwt.onrender.com. Empty disables the feature (same
+    # as water_message_model_enabled=False) since there's nothing to call.
+    aiwt_service_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
