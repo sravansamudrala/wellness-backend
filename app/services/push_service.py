@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from pywebpush import webpush, WebPushException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.services import aiwt_service
@@ -27,6 +28,11 @@ SLOT_MESSAGES = {
 }
 
 WATER_MESSAGE = ("💧 Hydration check", "Time to drink some water!")
+
+METER_SLAB_MESSAGE = (
+    "⚡ Consider switching meters",
+    "Your usage is approaching the next slab. Switching your active meter may help keep one meter within the lower usage slab.",
+)
 
 
 class PushService:
@@ -260,6 +266,91 @@ class PushService:
 
         logger.info(
             "Water push dispatch: %d users processed, %d notifications sent, %d errors",
+            result["processed_users"],
+            len(result["sent"]),
+            len(result["errors"]),
+        )
+        return result
+
+    @staticmethod
+    def dispatch_meter_slab_recommendation(db: Session) -> dict:
+        """Cron entry point. For every user who owns or has shared access to
+        at least one meter, re-evaluate the smart meter-slab-switch
+        recommendation fresh (no cached state) and send it once per
+        recipient per calendar day. Independent of skincare/water dispatch."""
+        result = {"processed_users": 0, "sent": [], "errors": []}
+
+        today = local_today()
+
+        owner_ids = {row.user_id for row in db.query(Meter.user_id).distinct()}
+        shared_ids = {
+            row.shared_with_user_id
+            for row in db.query(MeterShare.shared_with_user_id).distinct()
+        }
+        candidate_ids = owner_ids | shared_ids
+
+        for user_id in candidate_ids:
+            result["processed_users"] += 1
+
+            flag = (
+                db.query(FeatureFlag)
+                .filter(
+                    FeatureFlag.user_id == user_id,
+                    FeatureFlag.feature_key == "electricity_tracker",
+                    FeatureFlag.enabled.is_(True),
+                )
+                .first()
+            )
+            if flag is None:
+                continue
+
+            try:
+                recommendation = evaluate_switch_recommendation(db, user_id, today)
+                if recommendation is None:
+                    continue
+
+                active_meter = (
+                    db.query(Meter).filter(Meter.id == recommendation.active_meter_id).first()
+                )
+                slot = f"meter_slab_recommendation_{active_meter.last_billed_reading_id}"
+
+                # Per-recipient dedup: one notification per (user, day, slot).
+                already = (
+                    db.query(ReminderDispatchLog)
+                    .filter(
+                        ReminderDispatchLog.user_id == user_id,
+                        ReminderDispatchLog.sent_on == today,
+                        ReminderDispatchLog.slot == slot,
+                    )
+                    .first()
+                )
+                if already is not None:
+                    continue
+
+                title, body = METER_SLAB_MESSAGE
+                count, errs = PushService.send_to_user(db, user_id, title, body)
+                result["errors"].extend(errs)
+
+                if count > 0:
+                    try:
+                        db.add(ReminderDispatchLog(user_id=user_id, sent_on=today, slot=slot))
+                        db.commit()
+                    except IntegrityError:
+                        # Another concurrent dispatch run already logged this
+                        # slot for today — treat as an already-sent no-op.
+                        db.rollback()
+
+                result["sent"].append(
+                    {"user_id": str(user_id), "slot": slot, "subscriptions": count}
+                )
+            except Exception as exc:
+                db.rollback()
+                result["errors"].append(
+                    {"type": type(exc).__name__, "user_id": str(user_id), "detail": str(exc)[:200]}
+                )
+
+        logger.info(
+            "Meter-slab-recommendation dispatch: %d users processed, %d notifications sent, %d errors",
             result["processed_users"],
             len(result["sent"]),
             len(result["errors"]),

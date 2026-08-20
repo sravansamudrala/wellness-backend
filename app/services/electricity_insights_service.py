@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.timezone import local_today
 from app.models.electricity import Meter, MeterReading, MeterShare, MeterSwitchEvent, SlabThreshold
 from app.models.user import User
 
@@ -165,9 +166,14 @@ def _nudge_text(
 
 
 def get_insights(db: Session, user_id: UUID) -> dict:
+    # Local import: meter_slab_recommendation_service imports several of this
+    # module's own functions, so importing it at module level here would be
+    # circular. Deferring it to call time breaks the cycle.
+    from app.services.meter_slab_recommendation_service import evaluate_switch_recommendation
+
     meter_ids = accessible_meter_ids(db, user_id)
     if not meter_ids:
-        return {"meters": []}
+        return {"meters": [], "slab_recommendation": None}
 
     meters = (
         db.query(Meter)
@@ -177,6 +183,7 @@ def get_insights(db: Session, user_id: UUID) -> dict:
     )
 
     active_meter_id = resolve_active_meter_id(db, user_id)
+    recommendation = evaluate_switch_recommendation(db, user_id, local_today())
 
     slabs_by_meter = {}
     all_slabs = (
@@ -222,4 +229,4 @@ def get_insights(db: Session, user_id: UUID) -> dict:
             }
         )
 
-    return {"meters": results}
+    return {"meters": results, "slab_recommendation": recommendation}

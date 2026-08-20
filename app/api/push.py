@@ -43,10 +43,11 @@ def dispatch(token: str = Query(default="")):
     try:
         skincare_result = PushService.dispatch_due(db)
         water_result = PushService.dispatch_water_due(db)
+        meter_slab_result = PushService.dispatch_meter_slab_recommendation(db)
         return {
-            "processed_users": skincare_result["processed_users"] + water_result["processed_users"],
-            "sent": skincare_result["sent"] + water_result["sent"],
-            "errors": skincare_result["errors"] + water_result["errors"],
+            "processed_users": skincare_result["processed_users"] + water_result["processed_users"] + meter_slab_result["processed_users"],
+            "sent": skincare_result["sent"] + water_result["sent"] + meter_slab_result["sent"],
+            "errors": skincare_result["errors"] + water_result["errors"] + meter_slab_result["errors"],
         }
     finally:
         db.close()

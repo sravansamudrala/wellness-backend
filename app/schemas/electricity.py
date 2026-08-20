@@ -119,5 +119,23 @@ class InsightsMeterResponse(BaseModel):
     nudge_text: Optional[str] = None
 
 
+class SlabRecommendationResponse(BaseModel):
+    active_meter_id: UUID
+    active_meter_label: str
+    standby_meter_id: UUID
+    standby_meter_label: str
+    active_cumulative_units: float
+    active_next_slab_min: float
+    active_operational_threshold: float
+    standby_cumulative_units: float
+    standby_next_slab_min: Optional[float] = None
+    standby_operational_threshold: Optional[float] = None
+    recommended_switch_date: date
+    explanation: str
+
+    model_config = {"from_attributes": True}
+
+
 class InsightsResponse(BaseModel):
     meters: List[InsightsMeterResponse]
+    slab_recommendation: Optional[SlabRecommendationResponse] = None
