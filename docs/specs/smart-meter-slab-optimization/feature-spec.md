@@ -1,5 +1,7 @@
 # Smart Meter Slab Optimization
 
+Status: implemented and deployed (`wellness-backend` `main` via PR #40; `wellness-tracker` `feature/smart-meter-slab-optimization`). None of the business rules or acceptance criteria below changed after deployment. Two issues were found and fixed post-launch, both purely mechanical, not product decisions: a duplicate-billing-dates bug in the billing-period estimator (AC12b — see `backend-spec.md` Revision note 4) and a post-merge incident that dropped required `Settings` fields/imports from `main` (see `backend-spec.md` Revision note 5 and `implementation-plan.md` §17).
+
 ## 1. Overview
 
 Build a proactive smart meter-switch recommendation that analyzes consumption across a user's two accessible meters and recommends switching when doing so can improve the distribution of consumption across slab thresholds during the current billing period.
