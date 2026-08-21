@@ -1,6 +1,6 @@
 # Smart Meter Slab Optimization — Implementation Plan
 
-Status: ready to execute. Translates the three authoritative documents below into a concrete, file-by-file build sequence. Introduces **no new product decisions** — anywhere this plan states a specific value, field name, or algorithm step, it is quoting a spec, not deciding one.
+Status: executed and deployed (`main`, PR #40); a post-deploy incident and its fix are documented in §17. Translates the three authoritative documents below into a concrete, file-by-file build sequence. Introduces **no new product decisions** — anywhere this plan states a specific value, field name, or algorithm step, it is quoting a spec, not deciding one.
 
 Source of truth, in this order:
 1. [`feature-spec.md`](./feature-spec.md) — product requirements, acceptance criteria.
@@ -349,3 +349,24 @@ Ordered roughly by how easy the mistake would be to make, not by severity — al
 12. **One user's bad data aborting the whole dispatch batch.** `dispatch_due`/`dispatch_water_due` already have no per-candidate `try/except` (a pre-existing gap, `backend-spec.md` §19); the new function sits in the same request as those two and runs after them — an uncaught exception in it would also prevent... actually, since it's added *after* the other two calls in `push.py`'s `dispatch()`, a crash in the new function can't block the other two (they've already run), but it would still 500 the whole HTTP response and lose its own `result` for that run. **Guard**: implement the per-candidate `try/except Exception` backend-spec §19 recommends for this new function specifically, so one bad candidate's electricity data can't take down the entire run's own reporting, even though it wouldn't affect the other two features' dispatch.
 
 13. **Regressing the distinct-billing-dates deduplication (AC12b).** Billed `MeterReading` rows sharing a calendar date must collapse to one date before interval calculation — a future edit to §6's logic (e.g. "simplifying" it back to a plain pairwise-diff over the raw row list) would silently reintroduce the exact suppression bug this revision fixes, without failing loudly (no exception, just a `slab_recommendation` that quietly goes missing for any user with a duplicate-dated shared-meter billing history). **Guard**: test #12b asserts the specific `[Jul 06 ×3, Aug 09 ×2] → 34-day interval, not [0,0,34,0]` regression case; do not remove or weaken it, and do not reintroduce a raw (non-deduplicated) date list anywhere in the interval calculation.
+
+14. **A clean merge is not proof of a correct merge, when two branches touch the same file concurrently.** This risk was theoretical when this plan was written — it materialized for real (see §17). **Guard**: after merging or rebasing any branch against a `main` that has moved, diff every touched file against *both* the pre-merge feature-branch commit and the pre-merge `main` commit, not just the immediately-preceding commit — a merge with no conflict markers can still silently drop one side's additions if a human (or an automated merge) resolves a real textual conflict by picking one side wholesale instead of keeping both.
+
+---
+
+## 17. Post-Deploy Incident (this revision)
+
+**What happened:** PR #40 squash-merged this feature into `main`. Before that squash merge, the feature branch was synced against `main` (to pick up unrelated, concurrently-developed `aiwt` work) via a merge commit (`b54e42e`, "Merge branch 'main' into feature"). That sync merge had a real textual conflict in `app/core/config.py` and `app/services/push_service.py` — both branches added new content in the same regions of both files — and whoever/whatever resolved it kept only one side in each spot:
+
+- `app/core/config.py`: `main`'s `water_message_model_enabled`/`aiwt_service_url` fields survived; this feature's four `meter_slab_*` `Settings` fields (§2/§6 of `backend-spec.md`, added with `Field(ge=...)` validation) were entirely dropped — except the now-orphaned `from pydantic import Field` import line.
+- `app/services/push_service.py`: this feature's `aiwt_service`/`WaterService` import lines were dropped even though `dispatch_water_due`'s body (added independently by `main`) still called `aiwt_service.generate_water_message(...)` — the reverse direction of the same mistake, plus this feature's own required imports (`local_today`, `Meter`/`MeterShare`, `FeatureFlag`, `evaluate_switch_recommendation`) were also dropped even though `dispatch_meter_slab_recommendation`'s body (this feature's own code) still called them.
+
+Because the conflict resolution touched only the import/field-declaration regions and left both function bodies intact, `git merge`/GitHub's merge UI reported no conflict markers left behind — the merge "succeeded" — but the result was two files whose declarations no longer matched their own usages.
+
+**Production impact:** every authenticated `GET /api/v1/electricity/insights` call returned `500 AttributeError: 'Settings' object has no attribute 'meter_slab_min_evaluation_days'`. `POST /api/v1/push/dispatch` would have failed identically (`NameError: name 'local_today' is not defined`) the next time it ran.
+
+**Diagnosis method:** the actual Render server log traceback (not guesswork) pinpointed the exact missing attribute and line. Every other file this feature's PR touched was then diffed against the pre-incident feature-branch commit (`cd9c984`) and found byte-identical, confirming the damage was isolated to exactly these two files rather than something broader.
+
+**Fix:** restore the missing fields/imports alongside the existing `aiwt` content (a union, not a replacement) — implemented on branch `fix/restore-meter-slab-settings-after-merge`, verified with the full test suite (126 passed, covering both this feature's tests and `aiwt`'s).
+
+**No specification, acceptance criterion, or confirmed decision changed.** This was a merge-process failure, not a business-logic defect — see `backend-spec.md` Revision note 5 for the backend-spec-side record of the same incident, and risk #14 above for the standing guard this adds to this plan's own risk list.
