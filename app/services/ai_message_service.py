@@ -45,6 +45,13 @@ def generate_message(cache_key: tuple, prompt: str, fallback: str) -> str:
         logger.exception("Groq call failed for cache_key=%s — using fallback", cache_key)
         return fallback
 
+    if not message:
+        # Reasoning-model defaults (e.g. groq_model getting switched to one
+        # later) can burn max_tokens on hidden reasoning and return empty
+        # content with no error — treat that the same as a request failure.
+        logger.warning("Groq returned empty content for cache_key=%s — using fallback", cache_key)
+        return fallback
+
     _cache[cache_key] = message
     return message
 
