@@ -58,8 +58,14 @@ class Settings(BaseSettings):
     # Groq's free-tier chat-completions API powers AI-generated encouragement
     # messages (skincare/water streaks, water hydration level). No key set →
     # falls back to the old rule-based messages, app still works either way.
+    # Groq deprecated llama-3.1-8b-instant (shutdown 2026-08-16). Tested
+    # replacements: openai/gpt-oss-20b works but is a reasoning model that
+    # needs reasoning_effort + a much higher max_tokens; qwen/qwen3.8-27b
+    # needs neither (clean output at the original max_tokens=30) and, being
+    # a different model ID than groq_vision_model below, doesn't share a
+    # rate-limit pool with the food-photo feature.
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = "qwen/qwen3.8-27b"
 
     # Vision-capable Groq model used only by the food-photo calorie estimator
     # (the text model above can't accept image input). Groq deprecated the
