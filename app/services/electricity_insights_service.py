@@ -5,12 +5,14 @@ electricity_service.py's CRUD/writes, same split as gym's workout_service vs
 insights_service.
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from statistics import median
 from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.timezone import local_today
 from app.models.electricity import Meter, MeterReading, MeterShare, MeterSwitchEvent, SlabThreshold
 from app.models.user import User
@@ -119,6 +121,65 @@ def compute_cumulative(db: Session, meter: Meter):
     return float(latest.reading_value) - float(anchor.reading_value), anchor, latest
 
 
+def recent_rate_per_day(db: Session, meter: Meter) -> Optional[float]:
+    """units/day between a meter's two most-recent readings, or None if
+    there aren't two, or they share a reading_date (can't divide by zero
+    days). Moved here from meter_slab_recommendation_service so both the
+    switch-recommendation path and the insights rate fields share one
+    implementation instead of two."""
+    last_two = (
+        db.query(MeterReading)
+        .filter(MeterReading.meter_id == meter.id)
+        .order_by(MeterReading.reading_date.desc(), MeterReading.created_at.desc())
+        .limit(2)
+        .all()
+    )
+    if len(last_two) != 2:
+        return None
+
+    latest, previous = last_two
+    if latest.reading_date == previous.reading_date:
+        return None
+
+    days = (latest.reading_date - previous.reading_date).days
+    return (float(latest.reading_value) - float(previous.reading_value)) / days
+
+
+def expected_billing_period_end(db: Session, meter_ids: List[UUID], anchor: MeterReading) -> date:
+    """Estimated end of the current billing period: anchor date + a typical
+    billing-period length, derived from the median of historical billed-
+    reading intervals pooled across the given meters, or the configured
+    default when too little history exists.
+
+    Billed readings sharing a calendar date (e.g. a shared meter's bill
+    confirmed by more than one accessible user) represent one billing
+    date, not several — intervals are computed from the distinct set of
+    dates, never the raw row list, so a duplicate date can never
+    manufacture a 0-day interval."""
+    distinct_billed_dates = sorted(
+        {
+            row.reading_date
+            for row in db.query(MeterReading)
+            .filter(
+                MeterReading.meter_id.in_(meter_ids),
+                MeterReading.is_billed_reading.is_(True),
+            )
+            .all()
+        }
+    )
+    intervals = [
+        (distinct_billed_dates[i] - distinct_billed_dates[i - 1]).days
+        for i in range(1, len(distinct_billed_dates))
+    ]
+
+    if len(intervals) >= settings.meter_slab_min_billing_intervals_for_estimate:
+        typical_billing_period_days = round(median(intervals))
+    else:
+        typical_billing_period_days = settings.meter_slab_default_billing_period_days
+
+    return anchor.reading_date + timedelta(days=typical_billing_period_days)
+
+
 def bracket_for(cumulative: float, slabs: List[SlabThreshold]) -> Optional[SlabThreshold]:
     """The bracket containing `cumulative`. slab_max is exclusive (hitting it
     exactly means you're already in the next slab) — matches the reviewed
@@ -209,6 +270,40 @@ def get_insights(db: Session, user_id: UUID) -> dict:
         billed_reading = anchor if meter.last_billed_reading_id is not None else None
         is_owner = meter.user_id == user_id
 
+        elapsed_days = (today - anchor.reading_date).days if anchor else None
+
+        # anchor == latest means this meter has only ever had one reading in
+        # this billing cycle — there's no second data point to compute a
+        # rate from, however much wall-clock time has passed since then.
+        has_two_points = anchor is not None and latest is not None and anchor.id != latest.id
+
+        # Rate is based on the SPAN OF ACTUAL READINGS (anchor -> latest),
+        # not elapsed time to "today" — so it reflects real historical pace
+        # even for a standby meter that hasn't been read since it was
+        # switched away from, instead of decaying toward zero the longer
+        # it sits untouched. This applies to every meter, active or not.
+        rate_span_days = (latest.reading_date - anchor.reading_date).days if has_two_points else None
+        daily_rate = cumulative / rate_span_days if (has_two_points and rate_span_days) else None
+        recent_rate = recent_rate_per_day(db, meter)
+
+        # Projection is forward-looking ("by your next bill you'll be at
+        # X") and only means something for the meter you're actually
+        # drawing from right now — a standby meter gets a rate (above) but
+        # no projection, since it isn't accumulating further usage toward
+        # a future bill.
+        billing_end = None
+        projected_units = None
+        if is_active:
+            if daily_rate is not None and recent_rate is not None:
+                projection_rate = max(daily_rate, recent_rate)
+            else:
+                projection_rate = daily_rate if daily_rate is not None else recent_rate
+
+            billing_end = expected_billing_period_end(db, meter_ids, anchor) if anchor else None
+            if projection_rate is not None and billing_end is not None:
+                days_remaining = max(0, (billing_end - today).days)
+                projected_units = cumulative + projection_rate * days_remaining
+
         results.append(
             {
                 "meter_id": meter.id,
@@ -222,10 +317,14 @@ def get_insights(db: Session, user_id: UUID) -> dict:
                 "cumulative_units": cumulative,
                 "last_reading": latest,
                 "last_billed_reading": billed_reading,
-                "days_since_bill": (today - anchor.reading_date).days if anchor else None,
+                "days_since_bill": elapsed_days,
                 "current_bracket": bracket,
                 "next_slab_min": next_min,
                 "nudge_text": _nudge_text(cumulative, bracket, next_min, is_active),
+                "daily_rate": daily_rate,
+                "recent_rate": recent_rate,
+                "expected_billing_period_end": billing_end,
+                "projected_units_at_billing_end": projected_units,
             }
         )
 

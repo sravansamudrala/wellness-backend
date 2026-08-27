@@ -13,8 +13,7 @@ part of the decision itself.
 from dataclasses import dataclass
 from datetime import date, timedelta
 from math import floor
-from statistics import median
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -26,6 +25,8 @@ from app.services.electricity_insights_service import (
     accessible_meter_ids,
     bracket_for,
     compute_cumulative,
+    expected_billing_period_end,
+    recent_rate_per_day,
     resolve_active_meter_id,
 )
 
@@ -44,63 +45,6 @@ class SwitchRecommendation:
     standby_operational_threshold: Optional[float]
     recommended_switch_date: date
     explanation: str
-
-
-def _recent_rate(db: Session, meter: Meter) -> Optional[float]:
-    """units/day between a meter's two most-recent readings, or None if
-    there aren't two, or they share a reading_date (can't divide by zero
-    days)."""
-    last_two = (
-        db.query(MeterReading)
-        .filter(MeterReading.meter_id == meter.id)
-        .order_by(MeterReading.reading_date.desc(), MeterReading.created_at.desc())
-        .limit(2)
-        .all()
-    )
-    if len(last_two) != 2:
-        return None
-
-    latest, previous = last_two
-    if latest.reading_date == previous.reading_date:
-        return None
-
-    days = (latest.reading_date - previous.reading_date).days
-    return (float(latest.reading_value) - float(previous.reading_value)) / days
-
-
-def _expected_billing_period_end(db: Session, meter_ids: List[UUID], anchor: MeterReading) -> date:
-    """Estimated end of the current billing period: anchor date + a typical
-    billing-period length, derived from the median of historical billed-
-    reading intervals pooled across both accessible meters, or the
-    configured default when too little history exists.
-
-    Billed readings sharing a calendar date (e.g. a shared meter's bill
-    confirmed by more than one accessible user) represent one billing
-    date, not several — intervals are computed from the distinct set of
-    dates, never the raw row list, so a duplicate date can never
-    manufacture a 0-day interval."""
-    distinct_billed_dates = sorted(
-        {
-            row.reading_date
-            for row in db.query(MeterReading)
-            .filter(
-                MeterReading.meter_id.in_(meter_ids),
-                MeterReading.is_billed_reading.is_(True),
-            )
-            .all()
-        }
-    )
-    intervals = [
-        (distinct_billed_dates[i] - distinct_billed_dates[i - 1]).days
-        for i in range(1, len(distinct_billed_dates))
-    ]
-
-    if len(intervals) >= settings.meter_slab_min_billing_intervals_for_estimate:
-        typical_billing_period_days = round(median(intervals))
-    else:
-        typical_billing_period_days = settings.meter_slab_default_billing_period_days
-
-    return anchor.reading_date + timedelta(days=typical_billing_period_days)
 
 
 def evaluate_switch_recommendation(
@@ -159,7 +103,7 @@ def evaluate_switch_recommendation(
     standby_next_min = _next_slab_min(standby_bracket, standby_slabs)
 
     overall_rate = cumulative_active / elapsed_days
-    recent_rate = _recent_rate(db, active_meter)
+    recent_rate = recent_rate_per_day(db, active_meter)
     projection_rate = max(overall_rate, recent_rate) if recent_rate is not None else overall_rate
 
     if cumulative_active <= 0 or projection_rate <= 0:
@@ -181,8 +125,8 @@ def evaluate_switch_recommendation(
     projected_days_to_threshold = remaining_capacity_active / projection_rate
     projected_operational_threshold_date = today + timedelta(days=floor(projected_days_to_threshold))
 
-    expected_billing_period_end = _expected_billing_period_end(db, meter_ids, anchor)
-    opportunity_exists = projected_operational_threshold_date < expected_billing_period_end
+    billing_period_end = expected_billing_period_end(db, meter_ids, anchor)
+    opportunity_exists = projected_operational_threshold_date < billing_period_end
     if not opportunity_exists:
         return None
 

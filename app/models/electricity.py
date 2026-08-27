@@ -91,6 +91,12 @@ class MeterReading(Base):
     # Meter.last_billed_reading_id.
     is_billed_reading: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # The amount the user was actually charged for the billing period ending
+    # at this reading — only meaningful when is_billed_reading is true.
+    # Entered at log time only, no edit-after-the-fact; null falls back to
+    # an illustrative estimate in the UI rather than a real figure.
+    billed_amount: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
+
     # Supabase storage path — Phase 2 (OCR entry). Unused while entry_method
     # is always "manual".
     photo_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)

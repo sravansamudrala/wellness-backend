@@ -360,7 +360,7 @@ def test_ac12b_duplicate_billed_dates_collapse_before_interval_calculation(clien
     interval (below the default min-2-intervals threshold), the estimate
     falls back to the 30-day default -- it must never collapse to 0 days
     (anchor.reading_date + 0), which is what the pre-fix code produced."""
-    from app.services.meter_slab_recommendation_service import _expected_billing_period_end
+    from app.services.electricity_insights_service import expected_billing_period_end
 
     _, user_id = _register(client, f"ac12b-{uuid.uuid4()}@example.com")
     meter = _meter(db, user_id, "Meter")
@@ -373,7 +373,7 @@ def test_ac12b_duplicate_billed_dates_collapse_before_interval_calculation(clien
     for value in (1000, 1000):
         anchor = _reading(db, meter.id, later_date, value, is_billed=True, update_anchor=False)
 
-    result = _expected_billing_period_end(db, [meter.id], anchor)
+    result = expected_billing_period_end(db, [meter.id], anchor)
 
     assert result == later_date + timedelta(days=settings.meter_slab_default_billing_period_days)
     assert result != later_date  # must not collapse to the anchor date itself (the pre-fix bug)
