@@ -26,6 +26,9 @@ class ReadingCreateRequest(BaseModel):
     reading_value: float
     reading_date: date
     is_billed_reading: bool = False
+    # Only meaningful when is_billed_reading is true — the amount the user
+    # was actually charged, entered at log time (no edit-after-the-fact).
+    billed_amount: Optional[float] = None
 
 
 class MeterShareCreateRequest(BaseModel):
@@ -79,6 +82,7 @@ class ReadingResponse(BaseModel):
     units_consumed: Optional[float] = None
     entry_method: str
     is_billed_reading: bool
+    billed_amount: Optional[float] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -117,6 +121,10 @@ class InsightsMeterResponse(BaseModel):
     current_bracket: Optional[SlabBracketResponse] = None
     next_slab_min: Optional[float] = None
     nudge_text: Optional[str] = None
+    daily_rate: Optional[float] = None
+    recent_rate: Optional[float] = None
+    expected_billing_period_end: Optional[date] = None
+    projected_units_at_billing_end: Optional[float] = None
 
 
 class SlabRecommendationResponse(BaseModel):

@@ -185,12 +185,38 @@ class ElectricityService:
         )
 
     @staticmethod
+    def _reading_immediately_before(
+        db: Session, meter_id: UUID, reference: MeterReading
+    ) -> Optional[MeterReading]:
+        """The reading that comes right before `reference` in the meter's
+        chronological order — used when correcting `reference` in place, to
+        validate against and recompute units_consumed the same way a fresh
+        insert would."""
+        return (
+            db.query(MeterReading)
+            .filter(
+                MeterReading.meter_id == meter_id,
+                MeterReading.id != reference.id,
+            )
+            .filter(
+                (MeterReading.reading_date < reference.reading_date)
+                | (
+                    (MeterReading.reading_date == reference.reading_date)
+                    & (MeterReading.created_at < reference.created_at)
+                )
+            )
+            .order_by(MeterReading.reading_date.desc(), MeterReading.created_at.desc())
+            .first()
+        )
+
+    @staticmethod
     def _build_reading(
         meter_id: UUID,
         reading_value: float,
         reading_date,
         previous: Optional[MeterReading],
         is_billed_reading: bool,
+        billed_amount: Optional[float] = None,
     ) -> MeterReading:
         """Validates against the meter's previous reading (readings only
         increase, and can't be dated before it — backdating is only
@@ -212,6 +238,7 @@ class ElectricityService:
             units_consumed=units_consumed,
             entry_method="manual",
             is_billed_reading=is_billed_reading,
+            billed_amount=billed_amount,
         )
 
     @staticmethod
@@ -219,16 +246,45 @@ class ElectricityService:
         db: Session, user_id: UUID, meter_id: UUID, request: ReadingCreateRequest
     ) -> MeterReading:
         meter = ElectricityService._get_accessible_meter(db, user_id, meter_id)
-        previous = ElectricityService._latest_reading(db, meter_id)
+        latest = ElectricityService._latest_reading(db, meter_id)
 
-        reading = ElectricityService._build_reading(
-            meter_id,
-            request.reading_value,
-            request.reading_date,
-            previous,
-            request.is_billed_reading,
+        # A real bill only happens once per cycle — a second billed
+        # submission on the same date as an already-billed reading is
+        # always a correction of that entry (e.g. a typo just noticed),
+        # never a genuine second bill. Update it in place instead of
+        # inserting a duplicate. Ordinary (non-billed) readings can
+        # legitimately repeat within a day (checking the meter more than
+        # once), so this narrow rule only fires when both the existing
+        # latest reading and the new submission are billed.
+        is_billed_correction = (
+            request.is_billed_reading
+            and latest is not None
+            and latest.is_billed_reading
+            and latest.reading_date == request.reading_date
         )
-        db.add(reading)
+
+        if is_billed_correction:
+            before = ElectricityService._reading_immediately_before(db, meter_id, latest)
+            if before is not None:
+                if request.reading_value < float(before.reading_value):
+                    raise ValueError("reading_value_decreased")
+                latest.units_consumed = request.reading_value - float(before.reading_value)
+            else:
+                latest.units_consumed = None
+            latest.reading_value = request.reading_value
+            latest.billed_amount = request.billed_amount
+            reading = latest
+        else:
+            reading = ElectricityService._build_reading(
+                meter_id,
+                request.reading_value,
+                request.reading_date,
+                latest,
+                request.is_billed_reading,
+                request.billed_amount,
+            )
+            db.add(reading)
+
         db.flush()
 
         if request.is_billed_reading:
