@@ -47,6 +47,11 @@ def generate_water_message(amount_ml: int, goal_ml: int, current_streak: int, ho
             response = requests.post(
                 f"{settings.aiwt_service_url}/v1/generate",
                 json=payload,
+                headers=(
+                    {"X-Api-Token": settings.aiwt_api_token}
+                    if settings.aiwt_api_token
+                    else None
+                ),
                 # Render's free tier cold-starts after inactivity (can take
                 # ~30-60s to wake); generous timeout since this runs in a
                 # background cron dispatch, not a user-facing request.
