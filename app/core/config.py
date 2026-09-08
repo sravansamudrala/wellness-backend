@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     # as water_message_model_enabled=False) since there's nothing to call.
     aiwt_service_url: str = ""
 
+    # Shared secret sent as the X-Api-Token header on every call to
+    # wellness-aiwt's /v1/generate - must match that service's own
+    # AIWT_API_TOKEN env var. Empty means no header is sent (matches
+    # wellness-aiwt's own "unset = check skipped" behavior for local dev).
+    aiwt_api_token: str = ""
+
     # How many calendar days must elapse since the billing anchor before the
     # meter-slab-recommendation evaluation begins. Must be >= 1: the
     # evaluation divides consumption by this many elapsed days, so 0 (or
